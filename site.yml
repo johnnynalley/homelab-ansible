@@ -90,6 +90,10 @@
   ansible.builtin.import_playbook: playbooks/storage-status.yml
   tags: [storage-status]
 
+- name: Configure git-sync timer (ts440)
+  ansible.builtin.import_playbook: playbooks/git-sync.yml
+  tags: [git-sync]
+
 - name: Configure Proxmox firewall
   ansible.builtin.import_playbook: playbooks/proxmox-firewall.yml
   tags: [proxmox, firewall]
