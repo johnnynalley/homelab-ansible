@@ -1,0 +1,25 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Managed by Ansible - do not edit manually -->
+<service-group>
+  <name replace-wildcards="yes">TimeMachine on %h</name>
+  <service>
+    <type>_smb._tcp</type>
+    <port>445</port>
+  </service>
+{% for share in smb_shares | default([]) %}
+{% if share.fruit_time_machine | default(false) %}
+  <service>
+    <type>_adisk._tcp</type>
+    <port>9</port>
+    <txt-record>sys=waMa=0,adVF=0x82</txt-record>
+    <txt-record>dk0=adVN={{ share.name }},adVF=0x82</txt-record>
+  </service>
+{% endif %}
+{% endfor %}
+  <service>
+    <type>_device-info._tcp</type>
+    <port>0</port>
+    <txt-record>model=TimeCapsule8,119</txt-record>
+  </service>
+</service-group>

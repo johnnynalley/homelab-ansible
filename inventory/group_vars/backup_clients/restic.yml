@@ -1,0 +1,29 @@
+# =============================================================================
+# Backup Clients - Restic Configuration
+# =============================================================================
+# Credentials are in vault.yml (same directory)
+
+# B2 bucket settings
+restic_bucket: "johnny-nas-backup"
+restic_prefix: "{{ inventory_hostname }}"
+
+# Retention policy
+restic_retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 6
+
+# Default backup paths (override per-host in host_vars)
+restic_backup_paths_common:
+  - /etc
+  - /root
+
+# Global excludes
+restic_excludes:
+  - "*.tmp"
+  - "*.cache"
+  - ".cache"
+  - "__pycache__"
+  - "node_modules"
+  - ".npm"
+  - ".local/share/Trash"

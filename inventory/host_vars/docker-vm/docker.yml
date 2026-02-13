@@ -1,0 +1,30 @@
+# =============================================================================
+# docker-vm - Docker Compose Stacks
+# =============================================================================
+
+# Docker networks (caddy-proxy already exists, created by Caddy stack)
+# New services should use caddy-proxy as external network
+docker_networks: []
+
+docker_stacks:
+  - name: caddy
+    path: /opt/caddy
+    build: true
+  - name: vaultwarden
+    path: /opt/vaultwarden
+    build: false
+  - name: uptime-kuma
+    path: /opt/uptime-kuma
+    build: false
+  - name: homepage
+    path: /opt/homepage
+    build: false
+  - name: gitea
+    path: /opt/gitea
+    build: false
+  - name: jellyseerr
+    path: /opt/jellyseerr
+    build: false
+  - name: cloudflared
+    path: /opt/cloudflared
+    build: false

@@ -1,0 +1,43 @@
+# =============================================================================
+# NAS Server - Samba Server Configuration
+# =============================================================================
+# Portable: applies to whichever host is in the [nas_server] group
+
+smb_workgroup: WORKGROUP
+
+smb_shares:
+  # Full NAS-ZFS pool root
+  - name: NAS-ZFS
+    path: /mnt/nas-zfs
+
+  # All configs directory
+  - name: Configs
+    path: /mnt/nas-zfs/configs
+
+  # Backups directory
+  - name: Backups
+    path: /mnt/nas-zfs/backups
+
+  # Time Machine backup target
+  - name: Time Machine
+    path: /mnt/nas-zfs/backups/timemachine
+    fruit_time_machine: true
+
+  # Legacy NAS directories
+  - name: NAS
+    path: /srv/NAS/Files
+
+  - name: NAS-01
+    path: /srv/nas-01
+
+  - name: NAS-02
+    path: /srv/nas-02
+
+  - name: NAS-03
+    path: /srv/nas-03
+
+  - name: NAS-04
+    path: /srv/nas-04
+
+  - name: NAS-05
+    path: /srv/nas-05

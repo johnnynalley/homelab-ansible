@@ -1,0 +1,8 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Scrub all configured ZFS pools
+set -euo pipefail
+{% for pool in zfs_pools %}
+logger -t zfs-scrub "Starting scrub of {{ pool }}"
+zpool scrub {{ pool }} || logger -t zfs-scrub -p daemon.err "Scrub failed for {{ pool }}"
+{% endfor %}

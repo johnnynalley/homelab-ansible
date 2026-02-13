@@ -1,0 +1,14 @@
+# =============================================================================
+# Proxmox Nodes - Specific Packages & Settings
+# =============================================================================
+
+packages_proxmox_extra:
+  - smartmontools
+  - lm-sensors
+  - ethtool
+  - pve-headers
+
+# Proxmox hosts backup extra paths
+restic_backup_paths_extra:
+  - /etc/pve
+  - /root

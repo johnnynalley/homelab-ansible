@@ -1,0 +1,14 @@
+[OPTIONS]
+
+enable: {{ pve_node_firewall.enable | default(true) | int }}
+
+[RULES]
+
+{% for rule in pve_node_firewall.rules %}
+{% if rule.type | default('') == 'group' %}
+GROUP {{ rule.name }} # {{ rule.comment | default('') }}
+{% else %}
+IN {{ rule.action }}{% if rule.iface is defined %} -i {{ rule.iface }}{% endif %}{% if rule.source is defined %} -source {{ rule.source }}{% endif %}{% if rule.proto is defined %} -p {{ rule.proto }}{% endif %}{% if rule.dport is defined %} -dport {{ rule.dport }}{% endif %} -log nolog{% if rule.comment is defined %} # {{ rule.comment }}{% endif %}
+
+{% endif %}
+{% endfor %}

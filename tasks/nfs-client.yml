@@ -1,0 +1,37 @@
+# =============================================================================
+# NFS Client Tasks
+# =============================================================================
+# Mounts NFS shares from servers
+# Expects variables:
+#   nfs_mounts: list of mount definitions
+
+- name: Install NFS client packages
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+    update_cache: true
+  when: ansible_facts.os_family == "Debian"
+
+- name: Install NFS client packages (Arch)
+  community.general.pacman:
+    name: nfs-utils
+    state: present
+  when: ansible_facts.os_family == "Archlinux"
+
+- name: Create mount point directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop: "{{ nfs_mounts | default([]) }}"
+
+- name: Mount NFS shares
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "{{ item.src }}"
+    fstype: nfs4
+    opts: "{{ item.opts | default('defaults,_netdev,nofail,soft,timeo=50,retrans=3') }}"
+    state: mounted
+  loop: "{{ nfs_mounts | default([]) }}"

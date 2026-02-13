@@ -1,0 +1,8 @@
+# =============================================================================
+# homebridge-lxc - Backup Configuration
+# =============================================================================
+
+# Backup paths (Homebridge config)
+restic_backup_paths_extra:
+  - /var/lib/homebridge
+  - /home/johnny

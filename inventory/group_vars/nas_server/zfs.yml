@@ -1,0 +1,186 @@
+# =============================================================================
+# NAS Server - ZFS Configuration (Sanoid + Scrub + Tuning)
+# =============================================================================
+# Portable: applies to whichever host is in the [nas_server] group
+
+# Sanoid templates define retention policies
+sanoid_templates:
+  # Production template - frequent snapshots for critical data
+  production:
+    frequently: 0
+    hourly: 24
+    daily: 7
+    weekly: 4
+    monthly: 6
+    yearly: 0
+    autosnap: "yes"
+    autoprune: "yes"
+
+  # Media template - less frequent snapshots for backups with own versioning
+  media:
+    frequently: 0
+    hourly: 0
+    daily: 7
+    weekly: 4
+    monthly: 3
+    yearly: 0
+    autosnap: "yes"
+    autoprune: "yes"
+
+  # Ignore template - no snapshots for replaceable content
+  ignore:
+    autosnap: "no"
+    autoprune: "yes"
+
+# Dataset configurations
+# Key = ZFS dataset name, value = configuration
+sanoid_datasets:
+  # Root dataset - production policy, process children only
+  nas_zfs:
+    use_template: production
+    recursive: "yes"
+    process_children_only: "yes"
+
+  # Critical datasets - inherit production from parent
+  nas_zfs/configs:
+    use_template: production
+    recursive: "no"
+
+  nas_zfs/appdata:
+    use_template: production
+    recursive: "no"
+
+  nas_zfs/files:
+    use_template: production
+    recursive: "no"
+
+  nas_zfs/nextcloud:
+    use_template: production
+    recursive: "no"
+
+  # Backups dataset - less frequent (contains Time Machine with own versioning)
+  nas_zfs/backups:
+    use_template: media
+    recursive: "yes"
+    process_children_only: "no"
+
+  # Media parent - production policy for future photos dataset
+  nas_zfs/media:
+    use_template: production
+    recursive: "yes"
+    process_children_only: "yes"
+
+  # Plex - ignore (replaceable)
+  nas_zfs/media/plex:
+    use_template: ignore
+    recursive: "yes"
+
+  # Podcasts - ignore (replaceable)
+  nas_zfs/media/podcasts:
+    use_template: ignore
+    recursive: "yes"
+
+  # Photos - production snapshots (irreplaceable personal data)
+  nas_zfs/media/photos:
+    use_template: production
+    recursive: "no"
+
+# =============================================================================
+# ZFS Scrub Schedule
+# =============================================================================
+
+# Pools to scrub (all pools on the NAS)
+zfs_pools:
+  - nas_zfs
+
+# Scrub schedule (systemd OnCalendar format)
+zfs_scrub_schedule: "Sun *-*-* 02:00:00"
+
+# =============================================================================
+# ZFS ARC Tuning
+# =============================================================================
+
+# ARC max size in bytes (2GB - takes effect on reboot)
+# Monitor with: cat /proc/spl/kstat/zfs/arcstats | grep -E '^size|^c_max'
+zfs_arc_max_bytes: 2147483648
+
+# =============================================================================
+# ZFS Dataset Properties (documentation + validation)
+# =============================================================================
+# These properties define how each dataset should be configured.
+# Used by the validation task to detect drift - does NOT auto-fix.
+# On a new NAS, use these values when creating datasets:
+#   zfs create -o compression=lz4 -o acltype=posixacl nas_zfs
+
+zfs_dataset_properties:
+  nas_zfs:
+    compression: lz4
+    acltype: posixacl
+  nas_zfs/appdata:
+    recordsize: 16K
+    atime: "off"
+  nas_zfs/backups:
+    recordsize: 1M
+    compression: zstd
+    acltype: posixacl
+  nas_zfs/backups/timemachine:
+    quota: 1T
+    recordsize: 1M
+    compression: zstd
+  nas_zfs/configs:
+    recordsize: 128K
+    compression: zstd
+    acltype: posixacl
+  nas_zfs/files:
+    recordsize: 128K
+    compression: zstd
+  nas_zfs/media/plex:
+    recordsize: 1M
+    atime: "off"
+  nas_zfs/nextcloud:
+    recordsize: 128K
+    compression: zstd
+    acltype: posixacl
+
+# =============================================================================
+# ZFS ACLs (POSIX ACLs for shared access)
+# =============================================================================
+# Required for Nextcloud External Storage (www-data UID 33) and Samba (smbusers)
+# Without these, Nextcloud and Samba break on a new NAS.
+
+zfs_acls:
+  - path: /srv/nas-zfs/configs
+    entries:
+      - entity: 33
+        etype: user
+        permissions: rwx
+        state: present
+      - entity: smbusers
+        etype: group
+        permissions: rwx
+        state: present
+    default_entries:
+      - entity: 33
+        etype: user
+        permissions: rwx
+        default: true
+        state: present
+      - entity: smbusers
+        etype: group
+        permissions: rwx
+        default: true
+        state: present
+
+  # Immich photos - read-only access for Nextcloud External Storage
+  - path: /srv/nas-zfs/media/photos
+    entries:
+      - entity: 33
+        etype: user
+        permissions: rx
+        state: present
+    default_entries:
+      - entity: 33
+        etype: user
+        permissions: rx
+        default: true
+        state: present

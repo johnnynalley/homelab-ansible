@@ -1,0 +1,8 @@
+# =============================================================================
+# pi5-01 - Backup Configuration (Ansible Controller)
+# =============================================================================
+
+# Backup paths
+restic_backup_paths_extra:
+  - /home/johnny
+  - /root/.config/rclone

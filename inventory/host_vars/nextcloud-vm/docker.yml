@@ -1,0 +1,10 @@
+# =============================================================================
+# nextcloud-vm - Docker Compose Stacks
+# =============================================================================
+
+# VirtioFS mount: /srv/nextcloud -> /srv/nas-zfs/nextcloud on ts440
+# Create docker-compose.yml at /opt/nextcloud before running docker-stacks
+docker_stacks:
+  - name: nextcloud-aio
+    path: /opt/nextcloud
+    build: false

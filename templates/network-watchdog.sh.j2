@@ -1,0 +1,442 @@
+#!/bin/bash
+# Network watchdog - checks connectivity and triggers recovery
+# Managed by Ansible - do not edit manually
+
+set -euo pipefail
+
+LOG_TAG="network-watchdog"
+STATE_DIR="/var/lib/network-watchdog"
+FAILURE_COUNT_FILE="${STATE_DIR}/failures"
+
+log() { logger -t "$LOG_TAG" "$*"; }
+
+# Configuration
+GATEWAY_CHECK_HOST="${GATEWAY_CHECK_HOST:-_gateway}"
+TAILSCALE_CHECK_HOST="${TAILSCALE_CHECK_HOST:-100.100.100.100}"
+MAX_GATEWAY_FAILURES="{{ network_watchdog_gateway_failures | default(3) }}"
+MAX_TAILSCALE_FAILURES="{{ network_watchdog_tailscale_failures | default(5) }}"
+MAX_DHCP_RECOVERY_ATTEMPTS="{{ network_watchdog_max_dhcp_recovery | default(5) }}"
+ALLOW_AUTO_REBOOT="{{ network_watchdog_allow_reboot | default(true) | lower }}"
+MAX_AUTO_REBOOTS="{{ network_watchdog_max_reboots | default(3) }}"
+REBOOT_STATE_FILE="${STATE_DIR}/reboot_state"
+
+mkdir -p "$STATE_DIR"
+
+get_failure_count() {
+    local key="$1"
+    if [[ -f "$FAILURE_COUNT_FILE" ]]; then
+        grep "^${key}=" "$FAILURE_COUNT_FILE" 2>/dev/null | cut -d= -f2 || echo 0
+    else
+        echo 0
+    fi
+}
+
+set_failure_count() {
+    local key="$1"
+    local count="$2"
+    if [[ -f "$FAILURE_COUNT_FILE" ]]; then
+        grep -v "^${key}=" "$FAILURE_COUNT_FILE" > "${FAILURE_COUNT_FILE}.tmp" 2>/dev/null || true
+        echo "${key}=${count}" >> "${FAILURE_COUNT_FILE}.tmp"
+        mv "${FAILURE_COUNT_FILE}.tmp" "$FAILURE_COUNT_FILE"
+    else
+        echo "${key}=${count}" > "$FAILURE_COUNT_FILE"
+    fi
+}
+
+get_reboot_state() {
+    # Returns: reboot_count last_reboot_time
+    if [[ -f "$REBOOT_STATE_FILE" ]]; then
+        cat "$REBOOT_STATE_FILE"
+    else
+        echo "0 0"
+    fi
+}
+
+set_reboot_state() {
+    local count="$1"
+    local timestamp="$2"
+    echo "$count $timestamp" > "$REBOOT_STATE_FILE"
+}
+
+clear_reboot_state() {
+    rm -f "$REBOOT_STATE_FILE"
+}
+
+get_reboot_backoff_minutes() {
+    local reboot_count="$1"
+    case "$reboot_count" in
+        0) echo 0 ;;   # First reboot: immediate
+        1) echo 5 ;;   # Second reboot: wait 5 min
+        2) echo 15 ;;  # Third reboot: wait 15 min
+        *) echo 999 ;; # No more reboots
+    esac
+}
+
+should_reboot_now() {
+    local reboot_state reboot_count last_reboot backoff_minutes minutes_since_reboot
+    reboot_state=$(get_reboot_state)
+    reboot_count=$(echo "$reboot_state" | cut -d' ' -f1)
+    last_reboot=$(echo "$reboot_state" | cut -d' ' -f2)
+
+    # Check if we've exceeded max reboots
+    if [[ "$reboot_count" -ge "$MAX_AUTO_REBOOTS" ]]; then
+        log "Max auto-reboots ($MAX_AUTO_REBOOTS) reached - manual intervention required"
+        return 1
+    fi
+
+    # Get required backoff for this reboot
+    backoff_minutes=$(get_reboot_backoff_minutes "$reboot_count")
+
+    # Check if enough time has passed since last reboot
+    if [[ "$last_reboot" -gt 0 ]]; then
+        minutes_since_reboot=$(( ($(date +%s) - last_reboot) / 60 ))
+        if [[ "$minutes_since_reboot" -lt "$backoff_minutes" ]]; then
+            log "Waiting for backoff: ${minutes_since_reboot}/${backoff_minutes} minutes since last reboot (reboot $((reboot_count))/3)"
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+record_reboot() {
+    local reboot_state reboot_count
+    reboot_state=$(get_reboot_state)
+    reboot_count=$(echo "$reboot_state" | cut -d' ' -f1)
+    set_reboot_state "$((reboot_count + 1))" "$(date +%s)"
+}
+
+get_primary_interface() {
+    # Get the primary network interface
+    # On Proxmox: use vmbr0 (bridge has the IP, not physical interface)
+    # On VMs/others: use first non-virtual interface
+    if [[ -e /sys/class/net/vmbr0 ]]; then
+        echo "vmbr0"
+        return
+    fi
+    ip -o link show | awk -F': ' '{print $2}' | grep -vE '^(lo|docker|br-|veth|tailscale|tun|fwbr|fwln|fwpr|tap)' | head -1
+}
+
+has_ipv4_address() {
+    # Check if we have a LAN IPv4 address (not Tailscale, not loopback)
+    local iface
+    iface=$(get_primary_interface)
+
+    # Check primary interface
+    if [[ -n "$iface" ]] && ip -4 addr show "$iface" 2>/dev/null | grep -q 'inet '; then
+        return 0
+    fi
+
+    # Fallback: check non-tailscale interfaces for private IPv4 (192.168.x, 10.x, 172.16-31.x)
+    # Excludes: 100.x (Tailscale CGNAT), 127.x (loopback)
+    if ip -4 addr show 2>/dev/null | grep -v 'tailscale0' | grep -qE 'inet (192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)'; then
+        return 0
+    fi
+
+    return 1
+}
+
+fix_proxmox_bridge() {
+    # On Proxmox hosts, check if physical interfaces got detached from bridges
+    # This happens when router restarts and carrier is lost temporarily
+    if [[ ! -f /etc/network/interfaces ]]; then
+        return 0
+    fi
+
+    # Find all bridges and their configured ports
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^iface[[:space:]]+(vmbr[0-9]+) ]]; then
+            current_bridge="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ bridge-ports[[:space:]]+(.+) && -n "${current_bridge:-}" ]]; then
+            configured_ports="${BASH_REMATCH[1]}"
+            for port in $configured_ports; do
+                # Skip if port is "none" or doesn't exist
+                [[ "$port" == "none" ]] && continue
+                [[ ! -e "/sys/class/net/$port" ]] && continue
+
+                # Check if port is actually attached to the bridge
+                if ! brctl show "$current_bridge" 2>/dev/null | grep -qw "$port"; then
+                    log "Reattaching $port to $current_bridge (was detached)"
+                    brctl addif "$current_bridge" "$port" 2>/dev/null || true
+                    ip link set "$port" up 2>/dev/null || true
+                fi
+            done
+            current_bridge=""
+        fi
+    done < /etc/network/interfaces
+}
+
+check_router_reachable() {
+    # Multi-layered check for router reachability that works in all environments
+    # including unprivileged LXC containers where arping doesn't work
+    local iface
+    iface=$(get_primary_interface)
+
+    # Check 1: Does interface have carrier (physical link)?
+    # This works everywhere and definitively detects physical link issues
+    if [[ -n "$iface" && -f "/sys/class/net/${iface}/carrier" ]]; then
+        local carrier
+        carrier=$(cat "/sys/class/net/${iface}/carrier" 2>/dev/null || echo "0")
+        if [[ "$carrier" != "1" ]]; then
+            log "Interface $iface has no carrier - physical link down"
+            return 1  # Router/network definitely unreachable
+        fi
+    fi
+
+    # Check 2: Is any common gateway in ARP cache? (doesn't need raw sockets)
+    # If gateway is cached and not FAILED/INCOMPLETE, we had recent contact
+    for gw in 192.168.1.1 192.168.0.1 10.0.0.1; do
+        if ip neigh show "$gw" 2>/dev/null | grep -qvE 'FAILED|INCOMPLETE'; then
+            log "Gateway $gw found in ARP cache - router was recently reachable"
+            return 0  # Router is/was reachable
+        fi
+    done
+
+    # Check 3: Try arping if available (works on Proxmox hosts, fails in unprivileged LXC)
+    if command -v arping &>/dev/null; then
+        for gw in 192.168.1.1 192.168.0.1 10.0.0.1; do
+            if arping -c 1 -w 2 "$gw" &>/dev/null 2>&1; then
+                log "Gateway $gw responded to arping"
+                return 0
+            fi
+        done
+
+        # arping ran but no response - check if arping even works here
+        # (fails silently in unprivileged LXC due to raw socket restrictions)
+        if ! arping -c 1 -w 1 -I lo 127.0.0.1 &>/dev/null 2>&1; then
+            log "arping not functional in this environment (likely unprivileged container)"
+            # Can't determine via arping - assume reachable (let backoff handle boot loops)
+            return 0
+        fi
+
+        # arping works but router didn't respond - router is likely down
+        log "arping functional but no gateway responded - router appears down"
+        return 1
+    fi
+
+    # No arping available, carrier is up, nothing in ARP cache
+    # This is ambiguous - could be fresh boot or router down
+    # Assume reachable and let reboot backoff mechanism handle boot loop prevention
+    log "Cannot determine router status (no arping, empty ARP cache) - assuming reachable"
+    return 0
+}
+
+check_gateway() {
+    # First, ensure Proxmox bridges have their interfaces attached
+    fix_proxmox_bridge
+
+    # Critical: Check if we have an IPv4 address at all
+    # If not, gateway check is pointless - we need DHCP recovery
+    if ! has_ipv4_address; then
+        log "No IPv4 address on primary interface - DHCP issue"
+        return 1
+    fi
+
+    if ping -c 1 -W 3 "$GATEWAY_CHECK_HOST" &>/dev/null; then
+        return 0
+    fi
+    for gw in 192.168.1.1 192.168.0.1 10.0.0.1; do
+        if ping -c 1 -W 2 "$gw" &>/dev/null; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+check_tailscale() {
+    if ! systemctl is-active --quiet tailscaled; then
+        return 1
+    fi
+
+    local status
+    status=$(tailscale status --json 2>/dev/null | jq -r '.BackendState // "Unknown"' 2>/dev/null || echo "Unknown")
+    if [[ "$status" != "Running" ]]; then
+        return 1
+    fi
+
+    if ! ping -c 1 -W 3 "$TAILSCALE_CHECK_HOST" &>/dev/null; then
+        return 1
+    fi
+
+    return 0
+}
+
+recover_gateway() {
+    local recovery_attempt
+    recovery_attempt=$(get_failure_count "dhcp_recovery")
+    log "Attempting gateway recovery (attempt $((recovery_attempt + 1))/$MAX_DHCP_RECOVERY_ATTEMPTS)..."
+
+{% if ansible_facts.os_family == "Debian" %}
+    # Debian-specific recovery
+    if command -v dhclient &>/dev/null; then
+        log "Releasing and renewing DHCP lease..."
+        dhclient -r 2>/dev/null || true
+        sleep 2
+        dhclient 2>/dev/null || true
+    fi
+
+    if [[ -f /etc/network/interfaces ]]; then
+        local iface
+        iface=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $5; exit}' || echo "")
+        if [[ -n "$iface" && "$iface" != "lo" && "$iface" != "tailscale0" ]]; then
+            log "Cycling interface $iface..."
+            ifdown "$iface" 2>/dev/null || true
+            sleep 2
+            ifup "$iface" 2>/dev/null || true
+        fi
+    fi
+{% endif %}
+
+    if systemctl is-active --quiet systemd-networkd; then
+        local iface
+        iface=$(get_primary_interface)
+
+        # First try: just restart systemd-networkd
+        log "Restarting systemd-networkd..."
+        systemctl restart systemd-networkd
+        sleep 5
+
+        # If still no IPv4, use networkctl reconfigure (more aggressive)
+        if ! has_ipv4_address && [[ -n "$iface" ]]; then
+            log "No IPv4 address, forcing interface reconfiguration on $iface..."
+            networkctl reconfigure "$iface" 2>/dev/null || true
+            sleep 5
+        fi
+
+        # If still no IPv4, try bringing interface down and up
+        if ! has_ipv4_address && [[ -n "$iface" ]]; then
+            log "Still no IPv4, cycling interface $iface..."
+            ip link set "$iface" down 2>/dev/null || true
+            sleep 2
+            ip link set "$iface" up 2>/dev/null || true
+            networkctl reconfigure "$iface" 2>/dev/null || true
+            sleep 5
+        fi
+    fi
+
+    # Restart systemd-resolved if it exists
+    if systemctl is-enabled --quiet systemd-resolved 2>/dev/null; then
+        log "Restarting systemd-resolved..."
+        systemctl restart systemd-resolved || true
+    fi
+
+    # Track recovery attempts for no-IPv4 situation
+    if ! has_ipv4_address; then
+        recovery_attempt=$((recovery_attempt + 1))
+        set_failure_count "dhcp_recovery" "$recovery_attempt"
+
+        if [[ "$recovery_attempt" -ge "$MAX_DHCP_RECOVERY_ATTEMPTS" ]]; then
+            # Before rebooting, check if router is reachable on LAN
+            # If router itself is down, rebooting won't help - avoid boot loop
+            # Uses multi-layered check that works in LXC/VMs where arping fails
+            if ! check_router_reachable; then
+                log "Router unreachable on LAN - network outage, not DHCP issue. Skipping reboot to avoid boot loop."
+                set_failure_count "dhcp_recovery" 0
+            elif [[ "$ALLOW_AUTO_REBOOT" != "true" ]]; then
+                log "CRITICAL: No IPv4 address after $MAX_DHCP_RECOVERY_ATTEMPTS recovery attempts - manual reboot required (auto-reboot disabled)"
+                set_failure_count "dhcp_recovery" 0
+            elif should_reboot_now; then
+                record_reboot
+                local reboot_num
+                reboot_num=$(echo "$(get_reboot_state)" | cut -d' ' -f1)
+                log "CRITICAL: No IPv4 address - requesting reboot ($reboot_num/$MAX_AUTO_REBOOTS)"
+                set_failure_count "dhcp_recovery" 0
+                shutdown -r +1 "Network watchdog: No IPv4 address (reboot $reboot_num/$MAX_AUTO_REBOOTS)" || true
+            else
+                # Backoff period or max reboots reached - keep trying soft recovery
+                set_failure_count "dhcp_recovery" 0
+            fi
+        fi
+    else
+        set_failure_count "dhcp_recovery" 0
+    fi
+}
+
+recover_tailscale() {
+    log "Attempting Tailscale recovery..."
+    systemctl restart tailscaled
+
+    for i in {1..6}; do
+        sleep 5
+        if check_tailscale; then
+            log "Tailscale reconnected after restart"
+            return 0
+        fi
+    done
+
+    log "Tailscale failed to reconnect after restart"
+    return 1
+}
+
+restart_dependent_services() {
+    log "Restarting dependent services after network recovery..."
+
+    # Restart all docker compose stacks to clear stale connection state
+    if command -v docker &>/dev/null; then
+        for compose_dir in /opt/*/docker-compose.yml /opt/*/docker-compose.yaml; do
+            if [[ -f "$compose_dir" ]]; then
+                stack_dir=$(dirname "$compose_dir")
+                log "Restarting docker stack in $stack_dir..."
+                (cd "$stack_dir" && docker compose restart) || true
+            fi
+        done
+    fi
+
+    # Remount any stale NFS mounts
+    mount -a -t nfs4 2>/dev/null || true
+
+    # Activate tailscale-online target if it exists
+    if systemctl is-enabled --quiet tailscale-online.target 2>/dev/null; then
+        systemctl start tailscale-online.target || true
+    fi
+}
+
+main() {
+    local gateway_failures tailscale_failures
+    gateway_failures=$(get_failure_count "gateway")
+    tailscale_failures=$(get_failure_count "tailscale")
+
+    # Check gateway connectivity
+    if check_gateway; then
+        if [[ "$gateway_failures" -gt 0 ]]; then
+            log "Gateway connectivity restored"
+            # Clear reboot state since network is working
+            clear_reboot_state
+        fi
+        set_failure_count "gateway" 0
+        set_failure_count "dhcp_recovery" 0
+    else
+        gateway_failures=$((gateway_failures + 1))
+        set_failure_count "gateway" "$gateway_failures"
+        log "Gateway unreachable (failure $gateway_failures/$MAX_GATEWAY_FAILURES)"
+
+        if [[ "$gateway_failures" -ge "$MAX_GATEWAY_FAILURES" ]]; then
+            recover_gateway
+            set_failure_count "gateway" 0
+        fi
+    fi
+
+    # Check Tailscale connectivity (only if gateway is up)
+    if check_gateway; then
+        if check_tailscale; then
+            if [[ "$tailscale_failures" -gt 0 ]]; then
+                log "Tailscale connectivity restored"
+                restart_dependent_services
+            fi
+            set_failure_count "tailscale" 0
+        else
+            tailscale_failures=$((tailscale_failures + 1))
+            set_failure_count "tailscale" "$tailscale_failures"
+            log "Tailscale unreachable (failure $tailscale_failures/$MAX_TAILSCALE_FAILURES)"
+
+            if [[ "$tailscale_failures" -ge "$MAX_TAILSCALE_FAILURES" ]]; then
+                if recover_tailscale; then
+                    restart_dependent_services
+                fi
+                set_failure_count "tailscale" 0
+            fi
+        fi
+    fi
+}
+
+main "$@"

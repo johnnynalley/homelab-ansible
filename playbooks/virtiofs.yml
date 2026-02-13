@@ -1,0 +1,97 @@
+---
+# =============================================================================
+# VirtioFS Playbook - Configure VirtioFS shares between Proxmox and VMs
+# =============================================================================
+# Configures VirtioFS on both Proxmox host and guest VM
+# Usage: ansible-playbook playbooks/virtiofs.yml --limit nextcloud-vm
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Configure VirtioFS on Proxmox host (add to VM config)
+# -----------------------------------------------------------------------------
+- name: Configure VirtioFS shares on Proxmox hosts
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Configure VirtioFS for VMs on this host
+      when: virtiofs_host_configs is defined
+      block:
+        - name: Ensure VirtioFS source directories have correct permissions
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: directory
+            owner: "{{ item.owner | default('root') }}"
+            group: "{{ item.group | default('root') }}"
+            mode: "{{ item.mode | default('0755') }}"
+          loop: "{{ virtiofs_directory_mappings | default([]) }}"
+          loop_control:
+            label: "{{ item.path }}"
+          when: item.path is defined
+
+        - name: Deploy VirtioFS directory mappings
+          ansible.builtin.template:
+            src: ../templates/proxmox-virtiofs-directory.cfg.j2
+            dest: /etc/pve/mapping/directory.cfg
+            mode: '0640'
+
+        - name: Add VirtioFS mount to VM config
+          ansible.builtin.lineinfile:
+            path: "/etc/pve/qemu-server/{{ item.vmid }}.conf"
+            regexp: "^virtiofs{{ item.index | default(0) }}:"
+            line: "virtiofs{{ item.index | default(0) }}: {{ item.name }},cache={{ item.cache | default('never') }}"
+            state: present
+          loop: "{{ virtiofs_host_configs }}"
+          loop_control:
+            label: "VM {{ item.vmid }}: {{ item.name }}"
+          notify: Note VM restart required
+
+  handlers:
+    - name: Note VM restart required
+      ansible.builtin.debug:
+        msg: "VirtioFS config changed - VM restart required for changes to take effect"
+
+# -----------------------------------------------------------------------------
+# Configure VirtioFS mounts on guest VMs
+# -----------------------------------------------------------------------------
+- name: Configure VirtioFS mounts on guest VMs
+  hosts: vms
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Configure VirtioFS mounts
+      when: virtiofs_mounts is defined and virtiofs_mounts | length > 0
+      block:
+        - name: Create VirtioFS mount points
+          ansible.builtin.file:
+            path: "{{ item.mount_point }}"
+            state: directory
+            owner: "{{ item.owner | default('root') }}"
+            group: "{{ item.group | default('root') }}"
+            mode: "{{ item.mode | default('0755') }}"
+          loop: "{{ virtiofs_mounts }}"
+          loop_control:
+            label: "{{ item.mount_point }}"
+
+        - name: Add VirtioFS mounts to fstab
+          ansible.builtin.lineinfile:
+            path: /etc/fstab
+            regexp: "^{{ item.name }}\\s+{{ item.mount_point }}"
+            line: "{{ item.name }}  {{ item.mount_point }}  virtiofs  {{ item.options | default('defaults') }}  0  0"
+            state: present
+          loop: "{{ virtiofs_mounts }}"
+          loop_control:
+            label: "{{ item.name }} -> {{ item.mount_point }}"
+
+        - name: Mount VirtioFS shares
+          ansible.posix.mount:
+            path: "{{ item.mount_point }}"
+            src: "{{ item.name }}"
+            fstype: virtiofs
+            opts: "{{ item.options | default('defaults') }}"
+            state: mounted
+          loop: "{{ virtiofs_mounts }}"
+          loop_control:
+            label: "{{ item.mount_point }}"

@@ -1,0 +1,11 @@
+# =============================================================================
+# jn-t14s-lin - Package Configuration
+# =============================================================================
+
+packages_host_extra:
+  # KDE Flatpak integration
+  - plasma-discover-backend-flatpak
+  - kde-config-flatpak
+  # Power management diagnostics
+  - powertop
+  - vainfo

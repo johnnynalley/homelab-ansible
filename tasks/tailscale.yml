@@ -1,0 +1,133 @@
+# =============================================================================
+# Tailscale Installation Tasks (Linux)
+# =============================================================================
+# Uses curl to avoid Python HTTPS stack issues on some systems
+
+- name: Decide Tailscale repo OS family
+  ansible.builtin.set_fact:
+    tailscale_repo_os: >-
+      {{
+        'ubuntu' if ansible_distribution == 'Ubuntu'
+        else 'raspbian' if (ansible_distribution | lower) in ['raspbian', 'raspberry pi os']
+        else 'debian'
+      }}
+  when: ansible_facts.os_family == "Debian"
+
+- name: Ensure prereqs for repo install (Debian)
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+  when: ansible_facts.os_family == "Debian"
+
+- name: Ensure keyrings dir exists
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: "0755"
+  when: ansible_facts.os_family == "Debian"
+
+- name: Download Tailscale keyring (Debian)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    url="https://pkgs.tailscale.com/stable/{{ tailscale_repo_os }}/{{ ansible_distribution_release }}.noarmor.gpg"
+    dest="/usr/share/keyrings/tailscale-archive-keyring.gpg"
+    tmp="$(mktemp)"
+    curl -fsSL "$url" -o "$tmp"
+    if [ ! -f "$dest" ] || ! cmp -s "$tmp" "$dest"; then
+      install -m 0644 "$tmp" "$dest"
+      echo CHANGED
+    fi
+    rm -f "$tmp"
+  args:
+    executable: /bin/bash
+  register: tailscale_key_dl
+  changed_when: "'CHANGED' in tailscale_key_dl.stdout"
+  when: ansible_facts.os_family == "Debian"
+
+- name: Download Tailscale apt source list (Debian)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    url="https://pkgs.tailscale.com/stable/{{ tailscale_repo_os }}/{{ ansible_distribution_release }}.tailscale-keyring.list"
+    dest="/etc/apt/sources.list.d/tailscale.list"
+    tmp="$(mktemp)"
+    curl -fsSL "$url" -o "$tmp"
+    if [ ! -f "$dest" ] || ! cmp -s "$tmp" "$dest"; then
+      install -m 0644 "$tmp" "$dest"
+      echo CHANGED
+    fi
+    rm -f "$tmp"
+  args:
+    executable: /bin/bash
+  register: tailscale_list_dl
+  changed_when: "'CHANGED' in tailscale_list_dl.stdout"
+  when: ansible_facts.os_family == "Debian"
+
+- name: Update apt cache if repo files changed (Debian)
+  ansible.builtin.apt:
+    update_cache: true
+  when:
+    - ansible_facts.os_family == "Debian"
+    - tailscale_key_dl.changed or tailscale_list_dl.changed
+
+- name: Install/Update tailscale package (Debian)
+  ansible.builtin.apt:
+    name: tailscale
+    state: "{{ tailscale_pkg_state | default('present') }}"
+  when: ansible_facts.os_family == "Debian"
+
+- name: Install tailscale (Arch)
+  community.general.pacman:
+    name: tailscale
+    state: "{{ tailscale_pkg_state | default('present') }}"
+  when: ansible_facts.os_family == "Archlinux"
+
+- name: Enable + start tailscaled (Linux)
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+  when: ansible_facts.os_family != "Darwin"
+
+- name: Create tailscaled systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/tailscaled.service.d
+    state: directory
+    mode: "0755"
+  when: ansible_facts.os_family != "Darwin"
+
+- name: Configure tailscaled restart policy
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/tailscaled.service.d/restart-policy.conf
+    content: |
+      [Service]
+      Restart=always
+      RestartSec=5
+      TimeoutStartSec=90
+    mode: "0644"
+  when: ansible_facts.os_family != "Darwin"
+  register: tailscale_restart_policy
+
+- name: Reload systemd if restart policy changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when:
+    - ansible_facts.os_family != "Darwin"
+    - tailscale_restart_policy.changed
+
+- name: Report tailscale version
+  ansible.builtin.command: tailscale version
+  register: tailscale_version
+  changed_when: false
+  failed_when: false
+
+- name: Print tailscale status
+  ansible.builtin.debug:
+    msg:
+      - "repo_os={{ tailscale_repo_os | default('N/A') }}"
+      - "release={{ ansible_distribution_release | default('N/A') }}"
+      - "pkg_state={{ tailscale_pkg_state | default('present') }}"
+      - "version={{ tailscale_version.stdout | default('unknown') }}"

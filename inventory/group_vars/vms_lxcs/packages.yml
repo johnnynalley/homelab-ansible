@@ -1,0 +1,10 @@
+# =============================================================================
+# VMs & LXC Containers - Shared Packages & Settings
+# =============================================================================
+# These apply to both VMs and LXCs
+# VM-specific packages (like qemu-guest-agent) are in group_vars/vms/
+
+packages_vms_lxcs_extra: []
+
+# VMs/LXCs backup - just /etc by default, override per-host
+restic_backup_paths_extra: []

@@ -1,0 +1,53 @@
+# =============================================================================
+# MergerFS Playbook - Media Pool Configuration
+# =============================================================================
+# Usage: ansible-playbook playbooks/mergerfs.yml
+#        ansible-playbook playbooks/mergerfs.yml --check --diff
+# =============================================================================
+
+- name: Configure MergerFS media pool
+  hosts: nas_server
+  become: true
+  gather_facts: true
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+  tasks:
+    - name: Skip hosts without mergerfs configured
+      ansible.builtin.meta: end_host
+      when: mergerfs_branches is not defined
+
+    - name: Install mergerfs
+      ansible.builtin.apt:
+        name: mergerfs
+        state: present
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Create mount point
+      ansible.builtin.file:
+        path: "{{ mergerfs_mount_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy mergerfs systemd mount unit
+      ansible.builtin.template:
+        src: ../templates/mergerfs-media.mount.j2
+        dest: "/etc/systemd/system/{{ mergerfs_mount_path | regex_replace('^/', '') | regex_replace('/', '-') }}.mount"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Flush handlers
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start mergerfs mount
+      ansible.builtin.systemd:
+        name: "{{ mergerfs_mount_path | regex_replace('^/', '') | regex_replace('/', '-') }}.mount"
+        enabled: true
+        state: started

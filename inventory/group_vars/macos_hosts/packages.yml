@@ -1,0 +1,35 @@
+# =============================================================================
+# macOS Hosts - Homebrew Packages
+# =============================================================================
+# These packages are installed via Homebrew on macOS
+
+packages_macos_common:
+  # Core utilities
+  - coreutils
+  - curl
+  - wget
+  - git
+  - rsync
+  - jq
+
+  # Editors
+  - vim
+  - neovim
+
+  # System monitoring
+  - htop
+  - ncdu
+  - tmux
+
+  # Network tools
+  - nmap
+
+  # macOS specific useful tools
+  - mas           # Mac App Store CLI
+  - trash         # Safe rm to trash
+
+packages_macos_casks: []
+# Example casks you might want:
+# - iterm2
+# - visual-studio-code
+# - rectangle

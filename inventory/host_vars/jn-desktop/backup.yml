@@ -1,0 +1,13 @@
+# =============================================================================
+# jn-desktop - Backup Configuration
+# =============================================================================
+
+# B2 offsite backup paths
+restic_backup_paths_extra:
+  - /home/johnny
+
+# Local backup to ts440 ZFS (for quick restore)
+local_restic_enabled: true
+local_restic_backup_paths:
+  - /home/johnny
+  - /etc/udev/rules.d

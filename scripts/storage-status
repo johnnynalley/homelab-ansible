@@ -1,0 +1,189 @@
+#!/bin/bash
+# storage-status - Show accurate storage usage with ZFS and mergerfs support
+#
+# Displays all local storage devices/pools with correct capacity reporting.
+# ZFS pools are queried at the pool level (not dataset level) to show true
+# total capacity. MergerFS pools are auto-discovered and broken down by branch.
+#
+# Usage: storage-status
+#
+# Requirements: bash 4+, coreutils (numfmt, df)
+# Optional: zfs/zpool (for ZFS support), mergerfs.ctl (for mergerfs branch discovery)
+
+set -euo pipefail
+
+# ── Colors ───────────────────────────────────────────────────────────
+BOLD='\033[1m'
+DIM='\033[2m'
+CYAN='\033[36m'
+YELLOW='\033[33m'
+RED='\033[31m'
+GREEN='\033[32m'
+RESET='\033[0m'
+
+# Disable colors if not a terminal
+if [[ ! -t 1 ]]; then
+    BOLD='' DIM='' CYAN='' YELLOW='' RED='' GREEN='' RESET=''
+fi
+
+# ── Helpers ──────────────────────────────────────────────────────────
+fmt_bytes() {
+    numfmt --to=iec-i --suffix=B --format="%.1f" "$1" 2>/dev/null
+}
+
+pct_color() {
+    local pct=$1
+    if (( pct >= 90 )); then
+        echo -en "$RED"
+    elif (( pct >= 80 )); then
+        echo -en "$YELLOW"
+    else
+        echo -en "$GREEN"
+    fi
+}
+
+print_row() {
+    local name=$1 total=$2 used=$3 avail=$4
+    local pct=0
+    (( total > 0 )) && pct=$((used * 100 / total))
+    pct_color "$pct"
+    printf "  %-30s %10s %10s %10s  %4d%%\n" \
+        "$name" "$(fmt_bytes "$total")" "$(fmt_bytes "$used")" "$(fmt_bytes "$avail")" "$pct"
+    echo -en "$RESET"
+}
+
+print_divider() {
+    printf "  %s\n" "$(printf '%.0s─' {1..70})"
+}
+
+print_header() {
+    echo -e "${BOLD}  $(printf '%-30s %10s %10s %10s  %5s' 'DEVICE' 'TOTAL' 'USED' 'AVAIL' 'USE%')${RESET}"
+    print_divider
+}
+
+# Get storage stats for a path, returning pool-level stats for ZFS
+get_storage_stats() {
+    local path=$1
+    local src
+    src=$(findmnt -n -o SOURCE --target "$path" 2>/dev/null | head -1) || true
+
+    if [[ -n "$src" ]] && command -v zfs &>/dev/null && zfs list "$src" &>/dev/null 2>&1; then
+        local pool=${src%%/*}
+        zpool list -Hp -o size,alloc,free "$pool"
+    else
+        df -B1 --output=size,used,avail "$path" 2>/dev/null | tail -1
+    fi
+}
+
+# ── All Storage ──────────────────────────────────────────────────────
+echo
+echo -e "${BOLD}${CYAN}ALL STORAGE${RESET}"
+echo
+print_header
+
+all_total=0 all_used=0 all_avail=0
+declare -A seen_pools=()
+declare -A seen_sources=()
+
+# ZFS pools (if available)
+if command -v zpool &>/dev/null; then
+    while IFS=$'\t' read -r name size alloc free _; do
+        [[ -z "$name" ]] && continue
+        seen_pools[$name]=1
+        print_row "zpool: $name" "$size" "$alloc" "$free"
+        all_total=$((all_total + size))
+        all_used=$((all_used + alloc))
+        all_avail=$((all_avail + free))
+    done < <(zpool list -Hp -o name,size,alloc,free,cap 2>/dev/null)
+fi
+
+# Block devices (non-virtual filesystems)
+DF_EXCLUDES="-x tmpfs -x devtmpfs -x zfs -x fuse.mergerfs -x nfs -x nfs4"
+DF_EXCLUDES="$DF_EXCLUDES -x squashfs -x overlay -x efivarfs -x fuse -x vfat"
+
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    src=$(echo "$line" | awk '{print $1}')
+    total=$(echo "$line" | awk '{print $2}')
+    used=$(echo "$line" | awk '{print $3}')
+    avail=$(echo "$line" | awk '{print $4}')
+    mp=$(echo "$line" | awk '{print $6}')
+
+    # Skip if source device already seen (catches bind mounts)
+    [[ -n "${seen_sources[$src]:-}" ]] && continue
+
+    # Skip if source is a ZFS pool name (already counted above)
+    pool_check=${src%%/*}
+    [[ -n "$pool_check" && -n "${seen_pools[$pool_check]:-}" ]] && continue
+
+    seen_sources[$src]=1
+    print_row "$mp" "$total" "$used" "$avail"
+    all_total=$((all_total + total))
+    all_used=$((all_used + used))
+    all_avail=$((all_avail + avail))
+done < <(eval df -B1 --output=source,size,used,avail,pcent,target "$DF_EXCLUDES" 2>/dev/null | tail -n +2)
+
+print_divider
+print_row "TOTAL" "$all_total" "$all_used" "$all_avail"
+
+# ── MergerFS Pools ───────────────────────────────────────────────────
+# Auto-discover real mergerfs mounts (skip bind mounts of mergerfs)
+mapfile -t mergerfs_mounts < <(
+    awk '$3 == "fuse.mergerfs" {print $2}' /proc/mounts 2>/dev/null | while read -r mp; do
+        src=$(findmnt -n -o SOURCE "$mp" 2>/dev/null | head -1)
+        # Bind mounts of mergerfs show source as "mergerfs[/subpath]"
+        [[ "$src" == mergerfs\[* ]] && continue
+        echo "$mp"
+    done
+)
+
+for mf_mount in "${mergerfs_mounts[@]}"; do
+    [[ -z "$mf_mount" ]] && continue
+
+    # Discover branches
+    branches=()
+    if command -v mergerfs.ctl &>/dev/null; then
+        mapfile -t branches < <(mergerfs.ctl -m "$mf_mount" info 2>/dev/null | awk '/^    - /{print $2}')
+    fi
+
+    # Fallback: parse systemd mount unit
+    if (( ${#branches[@]} == 0 )); then
+        local_unit=$(systemd-escape -p --suffix=mount "$mf_mount" 2>/dev/null) || true
+        if [[ -n "$local_unit" ]]; then
+            mapfile -t branches < <(systemctl show "$local_unit" -p What --value 2>/dev/null | tr ':' '\n')
+        fi
+    fi
+
+    if (( ${#branches[@]} == 0 )); then
+        continue
+    fi
+
+    echo
+    echo -e "${BOLD}${CYAN}MERGERFS POOL${RESET} ${DIM}($mf_mount)${RESET}"
+    echo
+    print_header
+    mf_total=0 mf_used=0 mf_avail=0
+
+    for branch in "${branches[@]}"; do
+        [[ -z "$branch" ]] && continue
+        read -r t u a <<< "$(get_storage_stats "$branch")"
+        [[ -z "$t" ]] && continue
+        print_row "$branch" "$t" "$u" "$a"
+        mf_total=$((mf_total + t))
+        mf_used=$((mf_used + u))
+        mf_avail=$((mf_avail + a))
+    done
+
+    print_divider
+    print_row "POOL TOTAL" "$mf_total" "$mf_used" "$mf_avail"
+done
+
+# ── ZFS Datasets ────────────────────────────────────────────────────
+if command -v zfs &>/dev/null && zpool list -H &>/dev/null 2>&1; then
+    echo
+    echo -e "${BOLD}${CYAN}ZFS DATASETS${RESET}"
+    echo
+    zfs list
+fi
+
+echo

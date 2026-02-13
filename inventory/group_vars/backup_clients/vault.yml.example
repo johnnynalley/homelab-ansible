@@ -1,0 +1,13 @@
+# =============================================================================
+# VAULT TEMPLATE - Backup Client Secrets
+# =============================================================================
+# Note: These can also be placed in group_vars/all/vault.yml
+# Create with: ansible-vault create inventory/group_vars/backup_clients/vault.yml
+# =============================================================================
+
+# Backblaze B2 credentials
+b2_key_id: "YOUR_B2_KEY_ID"
+b2_application_key: "YOUR_B2_APPLICATION_KEY"
+
+# Restic repository encryption password
+restic_password: "YOUR_RESTIC_REPO_PASSWORD"

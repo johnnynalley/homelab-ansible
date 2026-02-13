@@ -1,0 +1,46 @@
+# =============================================================================
+# Proxmox Datacenter Firewall Configuration
+# =============================================================================
+
+pve_firewall_enabled: true
+
+# IP Sets (referenced as +dc/<name> in rules)
+pve_firewall_ipsets:
+  haos-vm:
+    comment: "Home Assistant VM"
+    entries:
+      - { ip: "192.168.1.64", comment: "LAN IP" }
+
+  pve-alto:
+    comment: "Datto Alto 3"
+    entries:
+      - { ip: "100.86.219.71", comment: "Tailscale IP" }
+      - { ip: "192.168.1.220", comment: "LAN IP" }
+
+  pve-ts440-ts:
+    comment: "TS440 Tailscale"
+    entries:
+      - { ip: "100.71.188.16", comment: "Tailscale IP" }
+
+  docker-vm:
+    comment: "Docker VM (Caddy reverse proxy)"
+    entries:
+      - { ip: "100.108.254.100", comment: "Tailscale IP" }
+
+  nextcloud-vm:
+    comment: "Nextcloud VM"
+    entries:
+      - { ip: "100.112.46.126", comment: "Tailscale IP" }
+
+  pve-m70q:
+    comment: "pve-m70q (apcupsd UPS master)"
+    entries:
+      - { ip: "100.75.110.105", comment: "Tailscale IP" }
+      - { ip: "192.168.1.230", comment: "LAN IP" }
+
+# Security Groups (referenced as GROUP <name> in node rules)
+pve_firewall_groups:
+  corosync-lan:
+    comment: "Corosync cluster heartbeat on LAN"
+    rules:
+      - { action: ACCEPT, proto: udp, dport: 5405, comment: "Corosync UDP" }

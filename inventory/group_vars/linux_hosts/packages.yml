@@ -1,0 +1,42 @@
+# =============================================================================
+# Linux Hosts - Common Packages
+# =============================================================================
+# These packages are installed on ALL Linux hosts (Debian + Arch)
+# Package names that differ between distros are handled in the playbook
+
+packages_linux_common:
+  # Core utilities
+  - ca-certificates
+  - curl
+  - wget
+  - git
+  - rsync
+  - sudo
+  - jq
+  - unzip
+  - zip
+  - tar
+  - lsof
+
+  # Editors
+  - vim
+  - nano
+  - neovim
+
+  # System monitoring
+  - htop
+  - iotop
+  - ncdu
+  - tmux
+
+  # Network tools
+  - net-tools
+  - traceroute
+  - nmap
+  - iperf3
+
+# Extra packages for Linux hosts (override in child groups)
+packages_linux_extra: []
+
+# Packages to remove (if any)
+packages_remove: []

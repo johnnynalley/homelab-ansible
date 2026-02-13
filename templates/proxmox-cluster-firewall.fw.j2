@@ -1,0 +1,24 @@
+[OPTIONS]
+
+enable: {{ pve_firewall_enabled | default(true) | int }}
+
+{% if pve_firewall_ipsets is defined %}
+{% for name, ipset in pve_firewall_ipsets.items() %}
+[IPSET {{ name }}] # {{ ipset.comment | default('') }}
+
+{% for entry in ipset.entries %}
+{{ entry.ip }} # {{ entry.comment | default('') }}
+{% endfor %}
+
+{% endfor %}
+{% endif %}
+{% if pve_firewall_groups is defined %}
+{% for name, group in pve_firewall_groups.items() %}
+[group {{ name }}] # {{ group.comment | default('') }}
+
+{% for rule in group.rules %}
+IN {{ rule.action }}{% if rule.proto is defined %} -p {{ rule.proto }}{% endif %}{% if rule.dport is defined %} -dport {{ rule.dport }}{% endif %} -log nolog{% if rule.comment is defined %} # {{ rule.comment }}{% endif %}
+
+{% endfor %}
+{% endfor %}
+{% endif %}

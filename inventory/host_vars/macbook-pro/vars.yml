@@ -1,0 +1,9 @@
+# =============================================================================
+# macbook-pro - Host Variables
+# =============================================================================
+
+# Legacy host uses johnny user
+admin_user: johnny
+
+# Network watchdog - no auto-reboot on workstations (if ever added to macOS)
+network_watchdog_allow_reboot: false

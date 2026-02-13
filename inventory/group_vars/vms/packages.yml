@@ -1,0 +1,7 @@
+# =============================================================================
+# Virtual Machines - Specific Packages
+# =============================================================================
+# These packages are only for VMs (not LXCs)
+
+packages_vms_extra:
+  - qemu-guest-agent

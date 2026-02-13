@@ -1,0 +1,18 @@
+# =============================================================================
+# jn-desktop - Package Configuration
+# =============================================================================
+# Gaming packages (Steam, Proton, Wine, etc.) handled by CachyOS gaming meta
+
+packages_host_extra:
+  # RGB Control
+  - openrgb
+  - liquidctl
+  # Utilities
+  - flatpak
+  # Reading
+  - readest
+
+# AUR packages (installed via yay/paru)
+packages_aur_extra:
+  # Media
+  - plezy

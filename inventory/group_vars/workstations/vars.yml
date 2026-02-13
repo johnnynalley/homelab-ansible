@@ -1,0 +1,12 @@
+# =============================================================================
+# Workstations Group Variables
+# =============================================================================
+# Workstations (gaming PCs, laptops, desktops) should NOT have automated
+# recovery mechanisms that could interrupt work, gaming, or cause unexpected
+# reboots.
+
+# Disable network watchdog - no auto-reboots on workstations
+network_watchdog_enabled: false
+
+# Disable auto-updates - user reviews and applies updates manually
+auto_updates_enabled: false

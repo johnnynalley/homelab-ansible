@@ -1,0 +1,19 @@
+# =============================================================================
+# jn-t14s-lin - WiFi / Suspend-Resume Configuration
+# =============================================================================
+
+# Disable WiFi power saving (reduces random disconnects)
+wifi_powersave_disable: true
+
+# Qualcomm QCNFA765 (ath11k_pci) may lose WiFi after suspend/resume.
+# Known kernel bug — fix merged in 6.16 but still intermittent on 6.17+.
+# Two options below (use one, not both). Try PCI FLR first — it's lighter.
+# Find PCI address with: lspci -D | grep -i network
+#
+# Option 1: PCI Function-Level Reset (preferred — lightweight hardware reset)
+# wifi_pci_flr_fix: true
+# wifi_pci_device: "0000:02:00.0"
+#
+# Option 2: Full module reload (heavier — use if PCI FLR doesn't help)
+# suspend_resume_wifi_fix: true
+# wifi_module: ath11k_pci

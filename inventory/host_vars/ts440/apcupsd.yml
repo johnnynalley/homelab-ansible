@@ -1,0 +1,22 @@
+# =============================================================================
+# ts440 - apcupsd Slave Configuration (Network client)
+# =============================================================================
+# Monitors pve-m70q's UPS over the network for graceful shutdown.
+# Higher thresholds than default so storage server shuts down earlier,
+# giving ZFS pools time to export cleanly.
+
+apcupsd_enabled: true
+apcupsd_upsname: ts440-ups
+apcupsd_cable: ether
+apcupsd_upstype: net
+apcupsd_device: "100.75.110.105:3551"
+apcupsd_nisip: "127.0.0.1"
+apcupsd_netserver: "on"
+apcupsd_polltime: 60
+
+# Shut down earlier than other nodes (storage safety)
+apcupsd_batterylevel: 15
+apcupsd_minutes: 7
+
+# Email alerts on power events
+apcupsd_email_enabled: true

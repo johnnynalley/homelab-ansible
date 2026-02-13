@@ -1,0 +1,13 @@
+# =============================================================================
+# Arch Linux Hosts - Pacman Packages
+# =============================================================================
+# These packages are installed via pacman on Arch Linux
+
+packages_arch_extra:
+  # Arch-specific package names (where they differ from Debian)
+  - openssh
+  - bind-tools    # dig, nslookup (called dnsutils on Debian)
+  - inetutils     # ping, traceroute
+
+# Auto-updates schedule (Arch systems)
+auto_updates_oncalendar: "Sun *-*-* 02:00:00"

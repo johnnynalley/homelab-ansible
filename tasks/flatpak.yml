@@ -1,0 +1,22 @@
+# =============================================================================
+# Flatpak - Add Flathub remote and install apps
+# =============================================================================
+# Installs Flatpak apps from Flathub for Debian workstations where
+# native apt packages aren't available.
+#
+# Required variable: flatpak_workstations (list of Flathub app IDs)
+# =============================================================================
+
+- name: Add Flathub remote
+  community.general.flatpak_remote:
+    name: flathub
+    flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
+    state: present
+  tags: [packages, flatpak]
+
+- name: Install Flatpak apps
+  community.general.flatpak:
+    name: "{{ flatpak_workstations }}"
+    state: present
+    remote: flathub
+  tags: [packages, flatpak]

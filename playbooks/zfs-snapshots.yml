@@ -1,0 +1,35 @@
+# =============================================================================
+# ZFS Snapshots Playbook - Sanoid Snapshot Automation
+# =============================================================================
+# Usage: ansible-playbook playbooks/zfs-snapshots.yml
+#        ansible-playbook playbooks/zfs-snapshots.yml --limit ts440
+# =============================================================================
+
+- name: Configure ZFS snapshot automation with sanoid
+  hosts: nas_server
+  become: true
+  gather_facts: true
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart sanoid timer
+      ansible.builtin.systemd:
+        name: sanoid.timer
+        state: restarted
+        daemon_reload: true
+
+    - name: Reload systemd for scrub
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+  tasks:
+    - name: Import sanoid tasks
+      ansible.builtin.import_tasks: ../tasks/sanoid.yml
+      tags: [sanoid, zfs, snapshots]
+
+    - name: Import ZFS scrub and tuning tasks
+      ansible.builtin.import_tasks: ../tasks/zfs-scrub.yml
+      tags: [zfs, zfs-scrub, zfs-tuning]

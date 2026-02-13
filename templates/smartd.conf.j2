@@ -1,0 +1,25 @@
+# smartd configuration - Managed by Ansible
+# Do not edit manually - changes will be overwritten
+#
+# Monitor all drives, send email alerts, run scheduled tests
+# Test schedule: {{ smartd_default_test_schedule }}
+
+{% if smartd_devices is defined and smartd_devices | length > 0 %}
+# Explicit device list
+{% for device in smartd_devices %}
+{{ device.path }} -a \
+  -o on \
+  -S on \
+  -n {{ device.standby_check | default('standby,q') }} \
+  -W {{ device.temp_diff | default('4') }},{{ device.temp_info | default('45') }},{{ device.temp_crit | default('55') }} \
+  -m {{ smartd_alert_email }} \
+  -M once \
+  -s ({{ device.test_schedule | default(smartd_default_test_schedule) }})
+{% endfor %}
+{% else %}
+# Auto-detect all drives
+DEVICESCAN -a \
+  -s ({{ smartd_default_test_schedule }}) \
+  -m {{ smartd_alert_email }} \
+  -M once
+{% endif %}

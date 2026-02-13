@@ -1,0 +1,8 @@
+# =============================================================================
+# nextcloud-vm - Host Variables
+# =============================================================================
+
+admin_user: johnny
+
+# Install Docker for Nextcloud AIO
+install_docker: true

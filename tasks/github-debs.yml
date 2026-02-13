@@ -1,0 +1,35 @@
+# =============================================================================
+# GitHub .deb Packages - Version-checked install from GitHub releases
+# =============================================================================
+# Uses /latest/download/ URL to always grab newest release.
+# Compares installed dpkg version against GitHub API tag_name —
+# only downloads and installs when a newer version is available.
+#
+# Required variable: deb_debian_workstations (list of dicts with name, url, api)
+# =============================================================================
+
+- name: Get installed version of GitHub .deb packages
+  ansible.builtin.shell: |
+    dpkg-query -W -f='${Version}' {{ item.name }} 2>/dev/null || echo "not-installed"
+  register: deb_installed_versions
+  loop: "{{ deb_debian_workstations | default([]) }}"
+  changed_when: false
+  tags: [packages, apt, deb]
+
+- name: Get latest version from GitHub API
+  ansible.builtin.shell: |
+    curl -fsSL -H "Accept: application/vnd.github.v3+json" "{{ item.item.api }}" | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])"
+  register: deb_latest_versions
+  loop: "{{ deb_installed_versions.results | default([]) }}"
+  when: item is not skipped
+  changed_when: false
+  tags: [packages, apt, deb]
+
+- name: Install GitHub .deb packages (when newer version available)
+  ansible.builtin.apt:
+    deb: "{{ item.item.item.url }}"
+  loop: "{{ deb_latest_versions.results | default([]) }}"
+  when:
+    - item is not skipped
+    - item.item.stdout != (item.stdout | regex_replace('^v', ''))
+  tags: [packages, apt, deb]

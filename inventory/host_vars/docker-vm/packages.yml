@@ -1,0 +1,9 @@
+# =============================================================================
+# docker-vm - Package Configuration
+# =============================================================================
+
+# Extra packages for this host
+packages_host_extra: []
+
+# Install Docker from official repo (not Debian's docker.io)
+install_docker: true

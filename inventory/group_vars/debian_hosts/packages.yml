@@ -1,0 +1,14 @@
+# =============================================================================
+# Debian Hosts - Specific Packages
+# =============================================================================
+# These packages are Debian/Ubuntu specific (apt-based systems)
+
+packages_debian_extra:
+  # Debian-specific package names
+  - openssh-server
+  - dnsutils        # dig, nslookup (called bind-tools on Arch)
+  - iputils-ping    # ping (usually included on Arch)
+  - locales
+
+# Auto-updates schedule (Debian-based systems)
+auto_updates_oncalendar: "Sun *-*-* 02:00:00"

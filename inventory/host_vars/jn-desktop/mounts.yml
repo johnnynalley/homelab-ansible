@@ -1,0 +1,13 @@
+# =============================================================================
+# jn-desktop - Filesystem Mounts
+# =============================================================================
+
+filesystem_mounts:
+  # 1.8TB Games NVMe drive (shared with Windows)
+  - path: /mnt/games
+    src: /dev/disk/by-uuid/763A44543A441391
+    fstype: ntfs3
+    opts: "defaults,uid=1000,gid=1000,umask=0022,nofail"
+    owner: johnny
+    group: johnny
+    mode: "0755"

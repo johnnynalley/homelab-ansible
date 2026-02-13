@@ -1,0 +1,44 @@
+# =============================================================================
+# Global Variables - Apply to ALL hosts
+# =============================================================================
+
+# Timezone (all hosts should be consistent)
+global_timezone: America/Chicago
+
+# Default user for management
+admin_user: johnny
+admin_shell: /bin/bash
+
+# SSH hardening defaults
+ssh_password_auth: false
+ssh_permit_root_login: prohibit-password
+
+# Auto-updates defaults
+auto_updates_reboot_if_required: true
+auto_updates_randomized_delay_sec: "15m"
+
+# Restic backup defaults
+restic_bucket: "johnny-nas-backup"
+restic_prefix: "{{ inventory_hostname }}"
+restic_retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 6
+
+# Backup paths - common to all (override per-group/host)
+restic_backup_paths_common:
+  - /etc
+
+restic_backup_paths_extra: []
+restic_excludes: []
+
+# msmtp mail relay defaults (disabled by default, enabled per-group)
+msmtp_enabled: false
+msmtp_smtp_host: smtp.mail.me.com
+msmtp_smtp_port: 587
+msmtp_default_recipient: jn@jnalley.me
+
+# SMART monitoring defaults (disabled by default, enabled per-group)
+smartd_enabled: false
+smartd_alert_email: root
+smartd_default_test_schedule: "S/../.././02|L/../../6/03"

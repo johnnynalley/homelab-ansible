@@ -1,0 +1,36 @@
+# =============================================================================
+# media-vm - VirtioFS Mounts (Guest Side)
+# =============================================================================
+# Mount points match existing fstab entries on media-vm
+
+virtiofs_mounts:
+  - name: plex_library
+    mount_point: /srv/plex
+    owner: root
+    group: root
+    mode: "0755"
+  - name: incomplete_downloads
+    mount_point: /srv/incomplete_downloads
+    owner: root
+    group: root
+    mode: "0755"
+  - name: media
+    mount_point: /srv/media
+    owner: root
+    group: root
+    mode: "0755"
+  - name: books
+    mount_point: /srv/books
+    owner: root
+    group: root
+    mode: "0755"
+  - name: photos
+    mount_point: /srv/photos
+    owner: root
+    group: root
+    mode: "0755"
+  - name: untitled
+    mount_point: /srv/untitled
+    owner: root
+    group: root
+    mode: "0755"

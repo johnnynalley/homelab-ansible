@@ -1,0 +1,30 @@
+# =============================================================================
+# nextcloud-vm - Filesystem Mounts
+# =============================================================================
+# Bind mounts to consolidate VirtioFS paths under /srv/external for
+# Nextcloud AIO's NEXTCLOUD_MOUNT (only supports single path)
+
+filesystem_mounts:
+  # Bind mount configs into external storage
+  - path: /srv/external/configs
+    src: /srv/configs
+    fstype: none
+    opts: bind
+    owner: root
+    group: root
+
+  # Bind mount AIO backup into external storage
+  - path: /srv/external/nextcloud-aio-backup
+    src: /srv/nextcloud-aio-backup
+    fstype: none
+    opts: bind
+    owner: root
+    group: root
+
+  # Bind mount Immich photos into external storage (read-only)
+  - path: /srv/external/photos
+    src: /srv/photos
+    fstype: none
+    opts: bind,ro
+    owner: root
+    group: root

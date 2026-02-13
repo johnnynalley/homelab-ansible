@@ -1,0 +1,27 @@
+# =============================================================================
+# macbook-pro - rclone OneDrive-to-Nextcloud Sync
+# =============================================================================
+# Syncs local OneDrive folder (synced by OneDrive for Mac desktop app)
+# to Nextcloud via WebDAV. No OneDrive OAuth needed — rclone only talks
+# to Nextcloud. Uses launchd LaunchAgent (runs when logged in).
+
+rclone_sync_enabled: true
+
+# Source: local OneDrive folder (synced by OneDrive for Mac)
+rclone_sync_source: "/Users/johnny/Library/CloudStorage/OneDrive-TheUniversityofTexasatDallas"
+
+# Destination: Nextcloud WebDAV (rclone remote configured manually)
+rclone_sync_dest: "nextcloud:UTD OneDrive/"
+
+# Schedule: every 2 hours (in seconds, for launchd StartInterval)
+rclone_sync_interval: 7200
+
+# Uptime Kuma push monitor URL (set after creating monitor)
+rclone_sync_healthcheck_url: ""
+
+# Logging
+rclone_sync_log_file: "~/Library/Logs/rclone-sync.log"
+rclone_sync_log_level: "INFO"
+
+# Timeout for the sync job (30 minutes)
+rclone_sync_timeout: 1800

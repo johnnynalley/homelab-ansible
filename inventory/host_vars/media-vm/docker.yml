@@ -1,0 +1,19 @@
+# =============================================================================
+# media-vm - Docker Compose Stacks
+# =============================================================================
+
+# Configs stored locally at /opt (migrated from VirtioFS)
+# VirtioFS still used for media access:
+#   /srv/media -> /srv/media (mergerfs pool)
+#   /srv/incomplete_downloads -> /srv/media-downloads (Lacie SSD)
+#   /srv/plex -> /srv/media/plex (Plex library, read-only)
+docker_stacks:
+  - name: media-stack
+    path: /opt/media-stack
+    build: false
+  - name: portainer
+    path: /opt/portainer
+    build: false
+  - name: immich
+    path: /opt/immich
+    build: false

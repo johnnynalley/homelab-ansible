@@ -1,0 +1,9 @@
+# =============================================================================
+# media-vm - Package Configuration
+# =============================================================================
+
+# Extra packages for this host
+packages_host_extra: []
+
+# Install Docker from official repo
+install_docker: true

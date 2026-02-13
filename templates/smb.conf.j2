@@ -1,0 +1,57 @@
+# /etc/samba/smb.conf
+# Managed by Ansible - do not edit manually
+
+[global]
+   server role = standalone server
+   workgroup = {{ smb_workgroup | default('WORKGROUP') }}
+   security = user
+   map to guest = Never
+
+   # SMB protocol settings
+   smb2 leases = yes
+   kernel oplocks = no
+   server min protocol = SMB2
+   smb ports = 445
+   disable netbios = yes
+
+   # Extended attributes
+   ea support = yes
+
+   # macOS/fruit VFS compatibility
+   vfs objects = catia fruit streams_xattr
+   fruit:metadata = stream
+   fruit:resource = stream
+   fruit:encoding = native
+   fruit:aapl = yes
+   fruit:posix_rename = yes
+   fruit:zero_file_id = yes
+   fruit:delete_empty_adfiles = yes
+
+   # Printing (disabled)
+   load printers = no
+   disable spoolss = yes
+   printing = bsd
+
+   # Permissions
+   create mask = 0664
+   directory mask = 0775
+   force group = smbusers
+   inherit permissions = yes
+
+   # Symlinks
+   follow symlinks = yes
+   unix extensions = no
+   wide links = yes
+
+# Individual shares
+{% for share in smb_shares | default([]) %}
+[{{ share.name }}]
+   path = {{ share.path }}
+   browsable = {{ 'yes' if share.browseable | default(true) else 'no' }}
+   read only = {{ 'no' if share.writable | default(true) else 'yes' }}
+   valid users = {{ share.valid_users | default('@smbusers') }}
+{% if share.fruit_time_machine | default(false) %}
+   fruit:time machine = yes
+{% endif %}
+
+{% endfor %}

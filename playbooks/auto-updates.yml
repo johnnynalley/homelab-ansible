@@ -1,0 +1,181 @@
+# =============================================================================
+# Auto-Updates Playbook - Systemd timer for automatic updates
+# =============================================================================
+# Usage: ansible-playbook playbooks/auto-updates.yml
+# =============================================================================
+
+- name: Configure automatic system updates
+  hosts: linux_hosts
+  become: true
+  gather_facts: true
+
+  tasks:
+    # =========================================================================
+    # Skip hosts with auto_updates_enabled: false
+    # =========================================================================
+    - name: End play for hosts with auto-updates disabled
+      ansible.builtin.meta: end_host
+      when: auto_updates_enabled is defined and not auto_updates_enabled
+
+    # =========================================================================
+    # Debian/Ubuntu auto-updates script
+    # =========================================================================
+    - name: Create auto-updates script (Debian)
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          set -euo pipefail
+
+          LOG_TAG="auto-updates"
+
+          log() { logger -t "$LOG_TAG" "$*"; echo "$*"; }
+
+          log "Starting automatic updates..."
+
+          # Update package lists
+          log "Updating apt cache..."
+          apt-get update -qq
+
+          # Upgrade all packages
+          log "Upgrading packages..."
+          DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y \
+            -o Dpkg::Options::="--force-confdef" \
+            -o Dpkg::Options::="--force-confold"
+
+          # Clean up
+          log "Cleaning up..."
+          apt-get autoremove -y
+          apt-get autoclean -y
+
+          # Update Tailscale if installed
+          if command -v tailscale &>/dev/null; then
+            log "Updating Tailscale..."
+            apt-get install --only-upgrade -y tailscale || true
+          fi
+
+          # Check if reboot required
+          if [ -f /var/run/reboot-required ]; then
+            log "Reboot required, scheduling reboot..."
+            if [ "{{ auto_updates_reboot_if_required | default(true) | lower }}" = "true" ]; then
+              shutdown -r +1 "Auto-updates: rebooting in 1 minute"
+            else
+              log "Reboot required but auto-reboot disabled"
+            fi
+          else
+            log "No reboot required"
+          fi
+
+          log "Auto-updates complete"
+        dest: /usr/local/sbin/auto-updates
+        owner: root
+        group: root
+        mode: "0755"
+      when: ansible_facts.os_family == "Debian"
+      tags: [script]
+
+    # =========================================================================
+    # Arch Linux auto-updates script
+    # =========================================================================
+    - name: Create auto-updates script (Arch)
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          set -euo pipefail
+
+          LOG_TAG="auto-updates"
+
+          log() { logger -t "$LOG_TAG" "$*"; echo "$*"; }
+
+          log "Starting automatic updates..."
+
+          # Update package database and upgrade
+          log "Upgrading packages..."
+          pacman -Syu --noconfirm
+
+          # Clean package cache (keep last 2 versions)
+          log "Cleaning package cache..."
+          paccache -rk2 2>/dev/null || true
+
+          log "Auto-updates complete"
+          log "Note: Arch does not have automatic reboot-required detection"
+        dest: /usr/local/sbin/auto-updates
+        owner: root
+        group: root
+        mode: "0755"
+      when: ansible_facts.os_family == "Archlinux"
+      tags: [script]
+
+    # =========================================================================
+    # Systemd service
+    # =========================================================================
+    - name: Create auto-updates systemd service
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Automatic System Updates
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/auto-updates
+          StandardOutput=journal
+          StandardError=journal
+
+          # Run as root
+          User=root
+
+          # Safety limits
+          TimeoutStartSec=1800
+          Nice=19
+          IOSchedulingClass=idle
+        dest: /etc/systemd/system/auto-updates.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+      tags: [systemd]
+
+    # =========================================================================
+    # Systemd timer
+    # =========================================================================
+    - name: Create auto-updates systemd timer
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Run automatic updates on schedule
+
+          [Timer]
+          OnCalendar={{ auto_updates_oncalendar | default('Sun *-*-* 03:30:00') }}
+          RandomizedDelaySec={{ auto_updates_randomized_delay_sec | default('15m') }}
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+        dest: /etc/systemd/system/auto-updates.timer
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Enable auto-updates timer
+      tags: [systemd]
+
+    - name: Ensure auto-updates timer is enabled and started
+      ansible.builtin.systemd:
+        name: auto-updates.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [systemd]
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable auto-updates timer
+      ansible.builtin.systemd:
+        name: auto-updates.timer
+        enabled: true
+        state: started

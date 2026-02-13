@@ -1,0 +1,30 @@
+# =============================================================================
+# Locale Baseline Tasks (Debian/Ubuntu)
+# =============================================================================
+
+- name: Ensure locales package is installed
+  ansible.builtin.apt:
+    name: locales
+    state: present
+    update_cache: true
+  when: ansible_facts.os_family == "Debian"
+
+- name: Enable en_US.UTF-8 in /etc/locale.gen
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: '^#?\s*en_US\.UTF-8\s+UTF-8'
+    line: 'en_US.UTF-8 UTF-8'
+  register: locale_gen_line
+  when: ansible_facts.os_family == "Debian"
+
+- name: Generate locales if locale.gen changed
+  ansible.builtin.command: locale-gen
+  when:
+    - ansible_facts.os_family == "Debian"
+    - locale_gen_line.changed
+
+- name: Set default LANG
+  ansible.builtin.command: update-locale LANG=en_US.UTF-8
+  register: update_locale_cmd
+  changed_when: false
+  when: ansible_facts.os_family == "Debian"

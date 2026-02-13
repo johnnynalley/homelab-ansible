@@ -1,0 +1,9 @@
+# =============================================================================
+# jn-t14s-lin - Power Management Configuration
+# =============================================================================
+
+# Run powertop --auto-tune at boot (USB autosuspend, SATA, audio, PCIe PM)
+powertop_autotune_enabled: true
+
+# Mask ModemManager (no cellular modem in this laptop)
+disable_modem_manager: true

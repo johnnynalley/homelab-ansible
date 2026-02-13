@@ -1,0 +1,79 @@
+# =============================================================================
+# NFS Server Tasks
+# =============================================================================
+# Sets up NFSv4 exports with pseudo-root filesystem
+# Expects variables:
+#   nfs_exports: list of export definitions
+#   nfs_pseudo_root: path to NFSv4 pseudo-root (default: /srv)
+
+- name: Install NFS server packages
+  ansible.builtin.apt:
+    name:
+      - nfs-kernel-server
+      - nfs-common
+    state: present
+    update_cache: true
+
+- name: Ensure NFSv4 pseudo-root directory exists
+  ansible.builtin.file:
+    path: "{{ nfs_pseudo_root | default('/srv') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create export subdirectories under pseudo-root
+  ansible.builtin.file:
+    path: "{{ nfs_pseudo_root | default('/srv') }}/{{ item.name }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop: "{{ nfs_exports | default([]) }}"
+  when: item.bind_source is defined
+
+- name: Create bind mounts for exports
+  ansible.posix.mount:
+    path: "{{ nfs_pseudo_root | default('/srv') }}/{{ item.name }}"
+    src: "{{ item.bind_source }}"
+    fstype: none
+    opts: "{{ 'bind,x-systemd.requires=' + item.requires_mount + ',x-systemd.after=' + item.requires_mount if item.requires_mount is defined else 'bind' }}"
+    state: mounted
+  loop: "{{ nfs_exports | default([]) }}"
+  when: item.bind_source is defined
+
+- name: Configure /etc/exports
+  ansible.builtin.template:
+    src: ../templates/exports.j2
+    dest: /etc/exports
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Reload NFS exports
+
+- name: Create NFS server drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/nfs-kernel-server.service.d
+    state: directory
+    mode: "0755"
+  when: nfs_exports | selectattr('requires_mount', 'defined') | list | length > 0
+
+- name: Configure NFS server to wait for required mounts
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nfs-kernel-server.service.d/wait-for-mounts.conf
+    content: |
+      [Unit]
+      {% for export in nfs_exports | selectattr('requires_mount', 'defined') | list %}
+      After={{ export.requires_mount }}
+      Requires={{ export.requires_mount }}
+      {% endfor %}
+    mode: "0644"
+  notify: Reload systemd
+  when: nfs_exports | selectattr('requires_mount', 'defined') | list | length > 0
+
+- name: Ensure NFS server is enabled and running
+  ansible.builtin.systemd:
+    name: nfs-kernel-server
+    enabled: true
+    state: started

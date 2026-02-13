@@ -1,0 +1,95 @@
+# =============================================================================
+# Site Playbook - Run all configuration playbooks
+# =============================================================================
+# Usage: ansible-playbook site.yml
+#        ansible-playbook site.yml --limit proxmox_nodes
+#        ansible-playbook site.yml --tags packages
+# =============================================================================
+
+- name: Install baseline packages
+  ansible.builtin.import_playbook: playbooks/packages.yml
+  tags: [packages]
+
+- name: Configure msmtp mail relay
+  ansible.builtin.import_playbook: playbooks/msmtp.yml
+  tags: [msmtp, mail]
+
+- name: Configure SMART disk monitoring
+  ansible.builtin.import_playbook: playbooks/smartmontools.yml
+  tags: [smartmontools, smart, monitoring]
+
+- name: Configure apcupsd UPS monitoring
+  ansible.builtin.import_playbook: playbooks/apcupsd.yml
+  tags: [apcupsd, ups]
+
+- name: Configure SSH hardening
+  ansible.builtin.import_playbook: playbooks/ssh-hardening.yml
+  tags: [ssh, harden]
+
+- name: Configure automatic updates
+  ansible.builtin.import_playbook: playbooks/auto-updates.yml
+  tags: [auto-updates]
+
+- name: Configure network recovery
+  ansible.builtin.import_playbook: playbooks/network-recovery.yml
+  tags: [network, recovery]
+
+- name: Configure WiFi power management
+  ansible.builtin.import_playbook: playbooks/wifi.yml
+  tags: [wifi]
+
+- name: Configure power management
+  ansible.builtin.import_playbook: playbooks/power-management.yml
+  tags: [power]
+
+- name: Configure restic backups (B2 offsite)
+  ansible.builtin.import_playbook: playbooks/restic.yml
+  tags: [restic, backups]
+
+- name: Configure local restic backups (ts440 ZFS)
+  ansible.builtin.import_playbook: playbooks/local-restic.yml
+  tags: [local-restic, backups]
+
+- name: Configure NFS server and clients
+  ansible.builtin.import_playbook: playbooks/nfs.yml
+  tags: [nfs]
+
+- name: Configure filesystem mounts (NTFS, exFAT, etc.)
+  ansible.builtin.import_playbook: playbooks/filesystem-mounts.yml
+  tags: [mounts, filesystem]
+
+- name: Configure Samba server
+  ansible.builtin.import_playbook: playbooks/samba.yml
+  tags: [samba, smb]
+
+- name: Configure MergerFS media pool
+  ansible.builtin.import_playbook: playbooks/mergerfs.yml
+  tags: [mergerfs, storage]
+
+- name: Configure ZFS snapshots (sanoid)
+  ansible.builtin.import_playbook: playbooks/zfs-snapshots.yml
+  tags: [zfs, snapshots, sanoid]
+
+- name: Configure VirtioFS shares
+  ansible.builtin.import_playbook: playbooks/virtiofs.yml
+  tags: [virtiofs, mounts]
+
+- name: Deploy Docker Compose stacks
+  ansible.builtin.import_playbook: playbooks/docker-stacks.yml
+  tags: [docker, stacks]
+
+- name: Configure Gluetun VPN watchdog
+  ansible.builtin.import_playbook: playbooks/gluetun-watchdog.yml
+  tags: [gluetun, watchdog, vpn]
+
+- name: Configure rclone sync jobs
+  ansible.builtin.import_playbook: playbooks/rclone-sync.yml
+  tags: [rclone, sync]
+
+- name: Deploy storage-status utility
+  ansible.builtin.import_playbook: playbooks/storage-status.yml
+  tags: [storage-status]
+
+- name: Configure Proxmox firewall
+  ansible.builtin.import_playbook: playbooks/proxmox-firewall.yml
+  tags: [proxmox, firewall]

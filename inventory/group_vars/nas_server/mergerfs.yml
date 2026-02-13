@@ -1,0 +1,37 @@
+# =============================================================================
+# NAS Server - MergerFS Configuration
+# =============================================================================
+# Portable: applies to whichever host is in the [nas_server] group
+# Hardware-specific drive paths may need adjustment on different hardware
+
+# MergerFS media pool mount
+mergerfs_mount_path: /srv/media
+mergerfs_mount_type: fuse.mergerfs
+
+# Branches (source paths combined into the pool)
+mergerfs_branches:
+  - /srv/nas-01/media
+  - /srv/nas-02/media
+  - /srv/nas-zfs/media
+  - /srv/media-02/media
+  - /srv/media-03/media
+
+# Mount options
+# - inodecalc=path-hash: Stable inode numbers for NFS compatibility (prevents ESTALE)
+# - func.getattr=newest: Consistent file attributes across drives for NFS
+# - cache.files=off: Disable file caching (VirtioFS handles caching)
+# - category.create=mfs: Most free space policy for new files
+# - moveonenospc=true: Move writes to another branch if one is full
+# - minfreespace=50G: Minimum free space per branch before skipping
+# - statfs=full: Report combined space from all branches
+mergerfs_options: "allow_other,inodecalc=path-hash,func.getattr=newest,cache.files=off,dropcacheonclose=true,category.create=mfs,moveonenospc=true,minfreespace=50G,statfs=full,fsname=mergerfs"
+
+# Systemd dependencies (After= only, NOT Requires= - mixed ZFS/fstab breaks Requires=)
+mergerfs_after_units:
+  - zfs-mount.service
+  - cryptsetup.target
+  - srv-nas\x2d01.mount
+  - srv-nas\x2d02.mount
+  - srv-nas\x2dzfs-media.mount
+  - srv-media\x2d02-media.mount
+  - srv-media\x2d03-media.mount

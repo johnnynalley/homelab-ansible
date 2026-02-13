@@ -1,0 +1,12 @@
+# =============================================================================
+# jn-desktop - NFS Client Configuration
+# =============================================================================
+
+nfs_mounts:
+  # Full nas-zfs access from ts440
+  - path: /mnt/nas-zfs
+    src: 100.71.188.16:/nas-zfs
+    opts: "_netdev,nofail,soft,timeo=50,retrans=3,x-systemd.automount,x-systemd.requires=tailscaled.service"
+    owner: johnny
+    group: johnny
+    mode: "0755"

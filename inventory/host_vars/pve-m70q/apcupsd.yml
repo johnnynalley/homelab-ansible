@@ -1,0 +1,16 @@
+# =============================================================================
+# pve-m70q - apcupsd Master Configuration (USB-connected UPS)
+# =============================================================================
+# USB cable physically connected to this host.
+# Serves UPS status to all other Proxmox nodes via NIS (port 3551).
+
+apcupsd_enabled: true
+apcupsd_upsname: pve-m70q-ups
+apcupsd_cable: usb
+apcupsd_upstype: usb
+apcupsd_device: ""
+apcupsd_nisip: "0.0.0.0"
+apcupsd_netserver: "on"
+
+# Email alerts on power events
+apcupsd_email_enabled: true

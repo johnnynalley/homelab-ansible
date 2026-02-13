@@ -1,0 +1,111 @@
+# =============================================================================
+# ts440 - VirtioFS Host Configurations
+# =============================================================================
+# Defines VirtioFS shares to add to VM configs on this Proxmox host
+# These are added to /etc/pve/qemu-server/<vmid>.conf
+# =============================================================================
+
+# Directory mappings (shared via VirtioFS to VMs)
+# This is the canonical list - all available VirtioFS shares are defined here.
+# virtiofs_host_configs references these by name to attach to specific VMs.
+# Optional owner/group/mode control source directory permissions on the host.
+# Default: root:root 0755 if not specified.
+virtiofs_directory_mappings:
+  - name: plex_library
+    path: /srv/plex-library
+    owner: johnny
+    group: johnny
+    mode: "0775"
+  - name: completed_downloads
+    path: /srv/media/plex/downloads/complete
+    owner: johnny
+    group: johnny
+    mode: "0775"
+  - name: incomplete_downloads
+    path: /srv/media-downloads/incomplete
+    owner: johnny
+    group: johnny
+    mode: "0775"
+  - name: media
+    path: /srv/media
+    # mergerfs mount point - subdirs have their own permissions
+  - name: books
+    path: /srv/nas-zfs/media/books
+    owner: johnny
+    group: johnny
+    mode: "0775"
+  - name: photos
+    path: /srv/nas-zfs/media/photos
+    owner: johnny
+    group: johnny
+    mode: "0775"
+  - name: untitled
+    path: /srv/nas-zfs/media/archive/untitled
+    owner: johnny
+    group: johnny
+    mode: "0775"
+  - name: nextcloud_data
+    path: /srv/nas-zfs/nextcloud
+    # Parent is root; data/ subdir is www-data (managed by Nextcloud)
+  - name: configs
+    path: /srv/nas-zfs/configs
+    # Uses ACLs for www-data access (set manually on ts440)
+  - name: nextcloud_aio_backup
+    path: /srv/nas-zfs/backups/nextcloud-aio
+    # Borg runs as root inside AIO container
+
+virtiofs_host_configs:
+  # media-vm (VM 100) - indices match existing VM config (0, 3, 4, 5)
+  - vmid: 100
+    index: 0
+    name: plex_library
+    host_path: /srv/plex-library
+    cache: never
+  - vmid: 100
+    index: 3
+    name: incomplete_downloads
+    host_path: /srv/media-downloads/incomplete
+    cache: never
+  - vmid: 100
+    index: 4
+    name: media
+    host_path: /srv/media
+    cache: never
+  - vmid: 100
+    index: 5
+    name: books
+    host_path: /srv/nas-zfs/media/books
+    cache: never
+
+  - vmid: 100
+    index: 6
+    name: photos
+    host_path: /srv/nas-zfs/media/photos
+    cache: never
+  - vmid: 100
+    index: 7
+    name: untitled
+    host_path: /srv/nas-zfs/media/archive/untitled
+    cache: never
+
+  # nextcloud-vm (VM 101)
+  - vmid: 101
+    index: 0
+    name: nextcloud_data
+    host_path: /srv/nas-zfs/nextcloud
+    cache: never
+  - vmid: 101
+    index: 1
+    name: configs
+    host_path: /srv/nas-zfs/configs
+    cache: never
+  - vmid: 101
+    index: 2
+    name: nextcloud_aio_backup
+    host_path: /srv/nas-zfs/backups/nextcloud-aio
+    cache: never
+  - vmid: 101
+    index: 3
+    name: photos
+    host_path: /srv/nas-zfs/media/photos
+    cache: never

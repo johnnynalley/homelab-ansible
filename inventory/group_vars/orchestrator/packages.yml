@@ -1,0 +1,14 @@
+# =============================================================================
+# Orchestrator (Pi5) - Specific Packages & Settings
+# =============================================================================
+
+packages_orchestrator_extra:
+  - ansible
+  - python3-pip
+  - python3-venv
+  - nfs-common
+  - sshpass        # Required for bootstrapping new hosts with --ask-pass
+
+# Orchestrator backup paths
+restic_backup_paths_extra:
+  - /home/johnny

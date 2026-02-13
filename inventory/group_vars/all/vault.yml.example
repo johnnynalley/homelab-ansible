@@ -1,0 +1,28 @@
+# =============================================================================
+# VAULT TEMPLATE - Default Secrets for ALL hosts
+# =============================================================================
+# 
+# To create the actual vault file:
+#   ansible-vault create inventory/group_vars/all/vault.yml
+#
+# Then add these variables (with your real values):
+# =============================================================================
+
+# Default sudo/become password (override in host_vars for hosts with different passwords)
+ansible_become_password: "YOUR_DEFAULT_SUDO_PASSWORD"
+ansible_become_pass: "YOUR_DEFAULT_SUDO_PASSWORD"
+
+# Default password for new admin user creation (bootstrap playbook)
+admin_default_password: "YOUR_DEFAULT_ADMIN_PASSWORD"
+
+# Backblaze B2 credentials (for restic backups)
+b2_key_id: "YOUR_B2_KEY_ID"
+b2_application_key: "YOUR_B2_APPLICATION_KEY"
+
+# Restic repository encryption password
+restic_password: "YOUR_RESTIC_REPO_PASSWORD"
+
+# msmtp SMTP credentials (iCloud app-specific password)
+msmtp_smtp_user: "YOUR_ICLOUD_EMAIL"
+msmtp_smtp_password: "YOUR_ICLOUD_APP_SPECIFIC_PASSWORD"
+msmtp_from_address: "YOUR_FROM_ADDRESS"

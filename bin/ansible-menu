@@ -1,0 +1,156 @@
+#!/bin/bash
+# =============================================================================
+# Ansible Menu - Interactive Playbook Launcher
+# =============================================================================
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+PLAYBOOKS_DIR="$REPO_DIR/playbooks"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Get list of playbooks
+get_playbooks() {
+    find "$PLAYBOOKS_DIR" -maxdepth 1 -name "*.yml" -type f | sort | while read -r f; do
+        basename "$f"
+    done
+}
+
+# Display menu
+show_menu() {
+    echo -e "\n${CYAN}╔════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}        ${YELLOW}Ansible Playbook Menu${NC}              ${CYAN}║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════╝${NC}\n"
+
+    local i=1
+    while IFS= read -r playbook; do
+        printf "  ${GREEN}%2d)${NC} %s\n" "$i" "$playbook"
+        ((i++))
+    done <<< "$(get_playbooks)"
+
+    echo ""
+    echo -e "  ${BLUE}a)${NC}  Run ALL playbooks"
+    echo -e "  ${BLUE}i)${NC}  Show inventory"
+    echo -e "  ${BLUE}c)${NC}  Check mode (dry run)"
+    echo -e "  ${BLUE}l)${NC}  Limit to specific hosts"
+    echo -e "  ${BLUE}q)${NC}  Quit"
+    echo ""
+}
+
+# Run a playbook
+run_playbook() {
+    local playbook="$1"
+    local extra_args="${2:-}"
+
+    echo -e "\n${YELLOW}Running: ansible-playbook $playbook $extra_args${NC}\n"
+    cd "$REPO_DIR"
+    ansible-playbook "playbooks/$playbook" $extra_args
+}
+
+# Parse selection (supports ranges like 1-3 and multiple like 1 3 5)
+parse_selection() {
+    local input="$1"
+    local -a playbooks_array
+    mapfile -t playbooks_array <<< "$(get_playbooks)"
+    local -a selected=()
+
+    for item in $input; do
+        if [[ "$item" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+            # Range
+            for ((i=${BASH_REMATCH[1]}; i<=${BASH_REMATCH[2]}; i++)); do
+                if ((i > 0 && i <= ${#playbooks_array[@]})); then
+                    selected+=("${playbooks_array[$((i-1))]}")
+                fi
+            done
+        elif [[ "$item" =~ ^[0-9]+$ ]]; then
+            # Single number
+            if ((item > 0 && item <= ${#playbooks_array[@]})); then
+                selected+=("${playbooks_array[$((item-1))]}")
+            fi
+        fi
+    done
+
+    printf '%s\n' "${selected[@]}" | sort -u
+}
+
+# Main loop
+main() {
+    local extra_args=""
+    local limit_hosts=""
+
+    while true; do
+        show_menu
+
+        echo -ne "${CYAN}Select playbook(s) [1-9, a, i, c, l, q]: ${NC}"
+        read -r choice
+
+        case "$choice" in
+            q|Q)
+                echo -e "${GREEN}Goodbye!${NC}"
+                exit 0
+                ;;
+            i|I)
+                echo -e "\n${YELLOW}Inventory:${NC}"
+                cd "$REPO_DIR"
+                ansible-inventory --list --yaml | head -100
+                echo -e "\n${BLUE}Press Enter to continue...${NC}"
+                read -r
+                ;;
+            c|C)
+                if [[ "$extra_args" == *"--check"* ]]; then
+                    extra_args="${extra_args//--check/}"
+                    echo -e "${GREEN}Check mode DISABLED${NC}"
+                else
+                    extra_args="$extra_args --check"
+                    echo -e "${YELLOW}Check mode ENABLED (dry run)${NC}"
+                fi
+                sleep 1
+                ;;
+            l|L)
+                echo -ne "${CYAN}Enter host/group pattern (or 'clear' to reset): ${NC}"
+                read -r limit_hosts
+                if [[ "$limit_hosts" == "clear" ]]; then
+                    extra_args="${extra_args//--limit */}"
+                    echo -e "${GREEN}Limit cleared${NC}"
+                else
+                    extra_args="$extra_args --limit $limit_hosts"
+                    echo -e "${YELLOW}Will limit to: $limit_hosts${NC}"
+                fi
+                sleep 1
+                ;;
+            a|A)
+                echo -e "\n${YELLOW}Running ALL playbooks...${NC}"
+                while IFS= read -r playbook; do
+                    run_playbook "$playbook" "$extra_args"
+                done <<< "$(get_playbooks)"
+                echo -e "\n${GREEN}All playbooks complete!${NC}"
+                echo -e "${BLUE}Press Enter to continue...${NC}"
+                read -r
+                ;;
+            *)
+                # Parse selection
+                selected="$(parse_selection "$choice")"
+                if [[ -n "$selected" ]]; then
+                    while IFS= read -r playbook; do
+                        run_playbook "$playbook" "$extra_args"
+                    done <<< "$selected"
+                    echo -e "\n${GREEN}Selected playbook(s) complete!${NC}"
+                    echo -e "${BLUE}Press Enter to continue...${NC}"
+                    read -r
+                else
+                    echo -e "${RED}Invalid selection${NC}"
+                    sleep 1
+                fi
+                ;;
+        esac
+    done
+}
+
+main "$@"

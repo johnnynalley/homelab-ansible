@@ -1,0 +1,45 @@
+# =============================================================================
+# SSH Hardening Playbook
+# =============================================================================
+# Ensures SSH is configured securely across all Linux hosts
+# Usage: ansible-playbook playbooks/ssh-hardening.yml
+# =============================================================================
+
+- name: Configure SSH hardening
+  hosts: linux_hosts
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Enable SSH public key authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PubkeyAuthentication'
+        line: 'PubkeyAuthentication yes'
+        validate: "sshd -t -f %s"
+      notify: Reload SSH
+      tags: [ssh, harden]
+
+    - name: Disable SSH password authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication {{ "yes" if ssh_password_auth | default(false) else "no" }}'
+        validate: "sshd -t -f %s"
+      notify: Reload SSH
+      tags: [ssh, harden]
+
+    - name: Set PermitRootLogin
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin {{ ssh_permit_root_login | default("prohibit-password") }}'
+        validate: "sshd -t -f %s"
+      notify: Reload SSH
+      tags: [ssh, harden]
+
+  handlers:
+    - name: Reload SSH
+      ansible.builtin.systemd:
+        name: "{{ 'ssh' if ansible_distribution == 'Ubuntu' or ansible_distribution == 'Debian' else 'sshd' }}"
+        state: reloaded

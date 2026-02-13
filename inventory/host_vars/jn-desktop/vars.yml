@@ -1,0 +1,9 @@
+# =============================================================================
+# jn-desktop - Host Variables
+# =============================================================================
+
+# Uses johnny user (matching other hosts)
+admin_user: johnny
+
+# network_watchdog_enabled and auto_updates_enabled inherited from
+# group_vars/workstations/vars.yml

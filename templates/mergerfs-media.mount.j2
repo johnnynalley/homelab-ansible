@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+# MergerFS media pool - combines multiple storage sources
+# Managed by Ansible via playbooks/mergerfs.yml
+
+[Unit]
+Description=MergerFS Media Pool ({{ mergerfs_mount_path }})
+{% for unit in mergerfs_after_units %}
+After={{ unit }}
+{% endfor %}
+
+[Mount]
+What={{ mergerfs_branches | join(':') }}
+Where={{ mergerfs_mount_path }}
+Type={{ mergerfs_mount_type }}
+Options={{ mergerfs_options }}
+
+[Install]
+WantedBy=multi-user.target

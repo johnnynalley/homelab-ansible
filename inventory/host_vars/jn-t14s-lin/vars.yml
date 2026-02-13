@@ -1,0 +1,12 @@
+# =============================================================================
+# jn-t14s-lin - Host Variables (ThinkPad T14s, Kubuntu)
+# =============================================================================
+
+admin_user: johnny
+
+# sudo-rs (Kubuntu default) uses a non-standard prompt that Ansible doesn't recognize.
+# -S reads password from stdin instead of tty prompt.
+ansible_become_flags: "-S"
+
+# network_watchdog_enabled and auto_updates_enabled inherited from
+# group_vars/workstations/vars.yml

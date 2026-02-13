@@ -1,0 +1,70 @@
+# =============================================================================
+# Samba Server Tasks
+# =============================================================================
+# Sets up Samba shares with macOS compatibility (fruit VFS)
+# Expects variables:
+#   smb_shares: list of share definitions
+#   smb_workgroup: (optional) workgroup name, default WORKGROUP
+
+- name: Install Samba packages
+  ansible.builtin.apt:
+    name:
+      - samba
+      - samba-common-bin
+    state: present
+    cache_valid_time: 3600
+
+- name: Ensure smbusers group exists
+  ansible.builtin.group:
+    name: smbusers
+    state: present
+
+- name: Ensure share directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('johnny') }}"
+    group: "{{ item.group | default('smbusers') }}"
+    mode: "{{ item.mode | default('0775') }}"
+  loop: "{{ smb_shares | default([]) }}"
+  when: item.path is defined and item.ensure_dir | default(false)
+
+- name: Configure /etc/samba/smb.conf
+  ansible.builtin.template:
+    src: ../templates/smb.conf.j2
+    dest: /etc/samba/smb.conf
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+    validate: "testparm -s %s"
+  notify: Reload Samba
+
+- name: Install Avahi for Time Machine discovery
+  ansible.builtin.apt:
+    name: avahi-daemon
+    state: present
+  when: smb_shares | selectattr('fruit_time_machine', 'defined') | selectattr('fruit_time_machine', 'equalto', true) | list | length > 0
+
+- name: Configure Avahi Time Machine service
+  ansible.builtin.template:
+    src: ../templates/avahi-timemachine.service.j2
+    dest: /etc/avahi/services/timemachine.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Avahi
+  when: smb_shares | selectattr('fruit_time_machine', 'defined') | selectattr('fruit_time_machine', 'equalto', true) | list | length > 0
+
+- name: Ensure Samba service is enabled and running
+  ansible.builtin.systemd:
+    name: smbd
+    enabled: true
+    state: started
+
+- name: Ensure Avahi is enabled and running
+  ansible.builtin.systemd:
+    name: avahi-daemon
+    enabled: true
+    state: started
+  when: smb_shares | selectattr('fruit_time_machine', 'defined') | selectattr('fruit_time_machine', 'equalto', true) | list | length > 0

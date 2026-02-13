@@ -1,0 +1,35 @@
+# Systemd service to start Docker Compose stacks
+# Managed by Ansible - do not edit manually
+
+[Unit]
+Description=Start Docker Compose Stacks
+
+# Network dependencies - wait for actual Tailscale connectivity
+After=network-online.target
+Wants=network-online.target
+After=tailscale-online.target
+Wants=tailscale-online.target
+
+{% for mount in nfs_mounts | default([]) %}
+After={{ mount.path | replace('/', '-') | regex_replace('^-', '') }}.mount
+Requires={{ mount.path | replace('/', '-') | regex_replace('^-', '') }}.mount
+{% endfor %}
+After=docker.service
+Requires=docker.service
+{% for mount in nfs_mounts | default([]) %}
+ConditionPathIsMountPoint={{ mount.path }}
+{% endfor %}
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+{% for stack in docker_stacks %}
+{% if stack.build | default(false) %}
+ExecStart=/usr/bin/docker compose -f {{ stack.path }}/docker-compose.yml up -d --build
+{% else %}
+ExecStart=/usr/bin/docker compose -f {{ stack.path }}/docker-compose.yml up -d
+{% endif %}
+{% endfor %}
+
+[Install]
+WantedBy=multi-user.target

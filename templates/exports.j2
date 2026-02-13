@@ -1,0 +1,11 @@
+# /etc/exports - NFS export configuration
+# Managed by Ansible - do not edit manually
+
+# NFSv4 pseudo-root filesystem
+{{ nfs_pseudo_root | default('/srv') }}  {{ nfs_pseudo_root_clients | default('*(ro,fsid=0,no_subtree_check)') }}
+
+# Individual exports
+{% for export in nfs_exports | default([]) %}
+{{ nfs_pseudo_root | default('/srv') }}/{{ export.name }}  {% for client in export.clients %}{{ client.host }}({{ client.options | default('rw,sync,no_subtree_check,no_root_squash') }}){% if not loop.last %} {% endif %}{% endfor %}
+
+{% endfor %}

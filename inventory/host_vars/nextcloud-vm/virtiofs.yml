@@ -1,0 +1,26 @@
+# =============================================================================
+# nextcloud-vm - VirtioFS Mounts (Guest Side)
+# =============================================================================
+
+virtiofs_mounts:
+  - name: nextcloud_data
+    mount_point: /srv/nextcloud
+    owner: root
+    group: root
+    mode: "0755"
+  - name: configs
+    mount_point: /srv/configs
+    owner: root
+    group: root
+    mode: "0755"
+  - name: nextcloud_aio_backup
+    mount_point: /srv/nextcloud-aio-backup
+    owner: root
+    group: root
+    mode: "0755"
+  - name: photos
+    mount_point: /srv/photos
+    owner: root
+    group: root
+    mode: "0755"
+    options: ro

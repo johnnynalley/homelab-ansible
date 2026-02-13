@@ -1,0 +1,9 @@
+# =============================================================================
+# macbook-pro - Package Configuration
+# =============================================================================
+
+# Extra packages for this host (installed via Homebrew)
+packages_host_extra:
+  - rclone
+  - xz
+  - gptfdisk

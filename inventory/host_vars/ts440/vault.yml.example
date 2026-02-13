@@ -1,0 +1,15 @@
+# =============================================================================
+# HOST VAULT TEMPLATE - Override default sudo password for this host
+# =============================================================================
+#
+# Only create this file if this host has a DIFFERENT sudo password
+# than the default in group_vars/all/vault.yml
+#
+# To create the actual vault file:
+#   ansible-vault create inventory/host_vars/<hostname>/vault.yml
+#
+# =============================================================================
+
+# Override sudo/become password for this specific host
+ansible_become_password: "THIS_HOSTS_SUDO_PASSWORD"
+ansible_become_pass: "THIS_HOSTS_SUDO_PASSWORD"

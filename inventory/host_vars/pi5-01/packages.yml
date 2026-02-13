@@ -1,0 +1,7 @@
+# =============================================================================
+# pi5-01 - Package Configuration (Ansible Controller)
+# =============================================================================
+
+# Extra packages for this host
+packages_host_extra:
+  - rclone

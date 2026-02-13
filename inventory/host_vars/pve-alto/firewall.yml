@@ -1,0 +1,38 @@
+# =============================================================================
+# pve-alto - Proxmox Node + VM Firewall Configuration
+# =============================================================================
+
+pve_node_firewall:
+  enable: true
+  rules:
+    - { type: group, name: "corosync-lan", comment: "Cluster heartbeat" }
+    - { action: ACCEPT, iface: vmbr0, proto: tcp, dport: 8006, comment: "Proxmox API (LAN)" }
+    - { action: ACCEPT, iface: vmbr0, proto: tcp, dport: 22, comment: "SSH (LAN)" }
+    - { action: ACCEPT, iface: vmbr0, proto: tcp, dport: 3128, comment: "Spice proxy (LAN)" }
+    - { action: ACCEPT, iface: vmbr0, proto: tcp, dport: "60000:60050", comment: "Live migration (LAN)" }
+    - { action: ACCEPT, iface: tailscale0, proto: tcp, dport: 8006, comment: "Proxmox API (Tailscale)" }
+    - { action: ACCEPT, iface: tailscale0, proto: tcp, dport: 22, comment: "SSH (Tailscale)" }
+    - { action: ACCEPT, iface: tailscale0, proto: icmp, comment: "Ping (Tailscale)" }
+    - { action: DROP, comment: "Default deny" }
+
+pve_vm_firewalls:
+  # haos-vm (VM 120)
+  120:
+    enable: true
+    policy_in: DROP
+    rules:
+      - { action: ACCEPT, proto: tcp, dport: 8123, comment: "Home Assistant UI" }
+      - { action: ACCEPT, proto: tcp, dport: 22, comment: "SSH" }
+      - { action: ACCEPT, proto: tcp, dport: "21000:21100", comment: "HomeKit bridge HAP" }
+      - { action: ACCEPT, proto: udp, dport: 5353, comment: "mDNS/Bonjour" }
+
+  # syncthing-lxc (CT 106)
+  106:
+    enable: true
+    policy_in: DROP
+    rules:
+      - { action: ACCEPT, proto: tcp, dport: 22, comment: "SSH" }
+      - { action: ACCEPT, proto: tcp, dport: 8384, comment: "Syncthing UI" }
+      - { action: ACCEPT, proto: tcp, dport: 22000, comment: "Syncthing sync" }
+      - { action: ACCEPT, proto: udp, dport: 22000, comment: "Syncthing QUIC" }
+      - { action: ACCEPT, proto: udp, dport: 21027, comment: "Syncthing discovery" }

@@ -1,0 +1,180 @@
+#!/bin/bash
+# Gluetun VPN watchdog - detects crash loops and does a full container restart
+# Managed by Ansible - do not edit manually
+
+set -euo pipefail
+
+LOG_TAG="gluetun-watchdog"
+STATE_DIR="/var/lib/gluetun-watchdog"
+FAILURE_COUNT_FILE="${STATE_DIR}/failure_count"
+RESTART_LOG_FILE="${STATE_DIR}/restart_log"
+
+# Configuration (from Ansible variables)
+MAX_FAILURES="{{ gluetun_watchdog_max_failures | default(3) }}"
+MAX_RESTARTS="{{ gluetun_watchdog_max_restarts | default(5) }}"
+RESTART_WINDOW="{{ gluetun_watchdog_restart_window | default(3600) }}"
+COMPOSE_DIR="{{ gluetun_watchdog_compose_dir | default('/opt/media-stack') }}"
+CONTAINER_NAME="{{ gluetun_watchdog_container | default('gluetun') }}"
+
+mkdir -p "$STATE_DIR"
+
+log() { logger -t "$LOG_TAG" "$*"; }
+
+# ---------------------------------------------------------------------------
+# Failure counting (persistent across runs)
+# ---------------------------------------------------------------------------
+
+get_failure_count() {
+    [[ -f "$FAILURE_COUNT_FILE" ]] && cat "$FAILURE_COUNT_FILE" 2>/dev/null || echo 0
+}
+
+set_failure_count() {
+    echo "$1" > "$FAILURE_COUNT_FILE"
+}
+
+# ---------------------------------------------------------------------------
+# Restart rate limiting (prevent infinite restart loops)
+# ---------------------------------------------------------------------------
+
+get_recent_restart_count() {
+    if [[ ! -f "$RESTART_LOG_FILE" ]]; then
+        echo 0
+        return
+    fi
+    local cutoff
+    cutoff=$(( $(date +%s) - RESTART_WINDOW ))
+    awk -v cutoff="$cutoff" '$1 > cutoff' "$RESTART_LOG_FILE" 2>/dev/null | wc -l
+}
+
+record_restart() {
+    echo "$(date +%s)" >> "$RESTART_LOG_FILE"
+    # Prune entries older than the window
+    local cutoff
+    cutoff=$(( $(date +%s) - RESTART_WINDOW ))
+    if [[ -f "$RESTART_LOG_FILE" ]]; then
+        awk -v cutoff="$cutoff" '$1 > cutoff' "$RESTART_LOG_FILE" > "${RESTART_LOG_FILE}.tmp"
+        mv "${RESTART_LOG_FILE}.tmp" "$RESTART_LOG_FILE"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+check_gluetun_health() {
+    # Check if container exists and is running
+    if ! docker inspect "$CONTAINER_NAME" &>/dev/null; then
+        log "Container $CONTAINER_NAME does not exist - skipping"
+        return 2  # Special code: container doesn't exist, nothing to do
+    fi
+
+    local state
+    state=$(docker inspect --format {% raw %}'{{.State.Status}}'{% endraw %} "$CONTAINER_NAME" 2>/dev/null)
+    if [[ "$state" != "running" ]]; then
+        log "Container $CONTAINER_NAME is not running (state: $state)"
+        return 1
+    fi
+
+    # Check Docker healthcheck status (Gluetun defines its own healthcheck)
+    local health
+    health=$(docker inspect --format {% raw %}'{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'{% endraw %} "$CONTAINER_NAME" 2>/dev/null)
+
+    case "$health" in
+        healthy)
+            return 0
+            ;;
+        starting)
+            # Give it time to finish startup
+            log "Container is starting up - waiting"
+            return 1
+            ;;
+        unhealthy)
+            log "Docker healthcheck reports unhealthy"
+            return 1
+            ;;
+        none)
+            # No Docker healthcheck defined - test connectivity directly
+            if docker exec "$CONTAINER_NAME" wget -qO- --timeout=5 http://ipinfo.io/ip &>/dev/null; then
+                return 0
+            fi
+            log "Direct connectivity test failed"
+            return 1
+            ;;
+    esac
+
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Restart logic
+# ---------------------------------------------------------------------------
+
+restart_gluetun() {
+    local recent_restarts
+    recent_restarts=$(get_recent_restart_count)
+
+    if [[ "$recent_restarts" -ge "$MAX_RESTARTS" ]]; then
+        log "ERROR: $MAX_RESTARTS restarts within $(( RESTART_WINDOW / 60 ))m window - manual intervention required"
+        return 1
+    fi
+
+    log "Restarting $CONTAINER_NAME (restart $((recent_restarts + 1))/$MAX_RESTARTS within window)..."
+    record_restart
+
+    cd "$COMPOSE_DIR" && docker compose restart "$CONTAINER_NAME" 2>&1 | while read -r line; do
+        log "$line"
+    done
+
+    # Wait for container to stabilize
+    sleep 20
+
+    if check_gluetun_health; then
+        log "Container recovered after restart"
+        return 0
+    else
+        log "Container still unhealthy after restart - will retry next cycle"
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+main() {
+    local health_result
+    check_gluetun_health
+    health_result=$?
+
+    # Container doesn't exist - nothing to monitor
+    if [[ "$health_result" -eq 2 ]]; then
+        set_failure_count 0
+        return 0
+    fi
+
+    # Healthy
+    if [[ "$health_result" -eq 0 ]]; then
+        local prev_failures
+        prev_failures=$(get_failure_count)
+        if [[ "$prev_failures" -gt 0 ]]; then
+            log "VPN healthy (was at $prev_failures consecutive failures)"
+        fi
+        set_failure_count 0
+        return 0
+    fi
+
+    # Unhealthy - increment failure counter
+    local failures
+    failures=$(get_failure_count)
+    failures=$((failures + 1))
+    set_failure_count "$failures"
+
+    log "VPN unhealthy ($failures/$MAX_FAILURES consecutive failures)"
+
+    if [[ "$failures" -ge "$MAX_FAILURES" ]]; then
+        restart_gluetun
+        set_failure_count 0
+    fi
+}
+
+main "$@"

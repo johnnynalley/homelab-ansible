@@ -1,0 +1,11 @@
+[OPTIONS]
+
+enable: {{ item.value.enable | default(true) | int }}
+policy_in: {{ item.value.policy_in | default('DROP') }}
+
+[RULES]
+
+{% for rule in item.value.rules %}
+IN {{ rule.action }}{% if rule.iface is defined %} -i {{ rule.iface }}{% endif %}{% if rule.source is defined %} -source {{ rule.source }}{% endif %}{% if rule.proto is defined %} -p {{ rule.proto }}{% endif %}{% if rule.dport is defined %} -dport {{ rule.dport }}{% endif %} -log nolog{% if rule.comment is defined %} # {{ rule.comment }}{% endif %}
+
+{% endfor %}

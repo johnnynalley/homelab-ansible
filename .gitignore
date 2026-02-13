@@ -1,0 +1,7 @@
+*.retry
+.vault_pass*
+*.swp
+*.swo
+*~
+.DS_Store
+.claude/

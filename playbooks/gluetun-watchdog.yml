@@ -1,0 +1,87 @@
+# =============================================================================
+# Gluetun Watchdog Playbook - Auto-restart Gluetun on VPN crash loops
+# =============================================================================
+# Gluetun's internal VPN restart (HEALTH_RESTART_VPN=on) doesn't clean up
+# tun0 routes properly, causing self-reinforcing crash loops. This watchdog
+# detects the loop and does a full container restart to clear stale state.
+#
+# Usage: ansible-playbook playbooks/gluetun-watchdog.yml
+#        ansible-playbook playbooks/gluetun-watchdog.yml --limit media-vm
+# =============================================================================
+
+- name: Configure Gluetun VPN watchdog
+  hosts: linux_hosts
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Skip hosts without gluetun_watchdog_enabled
+      ansible.builtin.meta: end_host
+      when: not (gluetun_watchdog_enabled | default(false))
+
+    - name: Create state directory for gluetun-watchdog
+      ansible.builtin.file:
+        path: /var/lib/gluetun-watchdog
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create gluetun-watchdog script
+      ansible.builtin.template:
+        src: ../templates/gluetun-watchdog.sh.j2
+        dest: /usr/local/sbin/gluetun-watchdog
+        mode: "0755"
+        owner: root
+        group: root
+      notify: Reload systemd
+
+    - name: Create gluetun-watchdog.service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/gluetun-watchdog.service
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Gluetun VPN Health Watchdog
+          After=docker.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/gluetun-watchdog
+          StandardOutput=journal
+          StandardError=journal
+          TimeoutStartSec=120
+      notify: Reload systemd
+
+    - name: Create gluetun-watchdog.timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/gluetun-watchdog.timer
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Run Gluetun VPN watchdog periodically
+
+          [Timer]
+          OnBootSec={{ gluetun_watchdog_interval | default(60) }}
+          OnUnitActiveSec={{ gluetun_watchdog_interval | default(60) }}
+          AccuracySec=10
+
+          [Install]
+          WantedBy=timers.target
+      notify: Reload systemd
+
+    - name: Enable and start gluetun-watchdog timer
+      ansible.builtin.systemd:
+        name: gluetun-watchdog.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true

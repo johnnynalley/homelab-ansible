@@ -1,0 +1,29 @@
+# =============================================================================
+# Sanoid Configuration - Managed by Ansible
+# =============================================================================
+# Do not edit manually - changes will be overwritten
+#
+# Run 'sanoid --configcheck' to validate configuration
+# Run 'sanoid --take-snapshots --verbose' to test snapshot creation
+
+###############################
+# Templates
+###############################
+{% for template_name, template in sanoid_templates.items() %}
+
+[template_{{ template_name }}]
+{% for key, value in template.items() %}
+	{{ key }} = {{ value }}
+{% endfor %}
+{% endfor %}
+
+###############################
+# Datasets
+###############################
+{% for dataset, config in sanoid_datasets.items() %}
+
+[{{ dataset }}]
+{% for key, value in config.items() %}
+	{{ key }} = {{ value }}
+{% endfor %}
+{% endfor %}

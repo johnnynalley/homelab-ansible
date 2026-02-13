@@ -1,0 +1,125 @@
+# =============================================================================
+# ZFS Scrub + ARC Tuning Tasks
+# =============================================================================
+# Imported by playbooks/zfs-snapshots.yml
+# Expects variables: zfs_pools, zfs_scrub_schedule, zfs_arc_max_bytes
+
+- name: Skip ZFS scrub if not configured
+  ansible.builtin.meta: end_host
+  when: zfs_pools is not defined
+  tags: [zfs-scrub]
+
+# --- ZFS Scrub Schedule ---
+
+- name: Deploy ZFS scrub script
+  ansible.builtin.template:
+    src: ../templates/zfs-scrub.sh.j2
+    dest: /usr/local/sbin/zfs-scrub
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [zfs-scrub]
+
+- name: Deploy ZFS scrub systemd timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/zfs-scrub.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - playbooks/zfs-snapshots.yml
+      [Unit]
+      Description=Weekly ZFS scrub
+
+      [Timer]
+      OnCalendar={{ zfs_scrub_schedule | default('Sun *-*-* 02:00:00') }}
+      Persistent=true
+      RandomizedDelaySec=300
+
+      [Install]
+      WantedBy=timers.target
+  notify: Reload systemd for scrub
+  tags: [zfs-scrub]
+
+- name: Deploy ZFS scrub systemd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/zfs-scrub.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - playbooks/zfs-snapshots.yml
+      [Unit]
+      Description=ZFS pool scrub
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/zfs-scrub
+  notify: Reload systemd for scrub
+  tags: [zfs-scrub]
+
+- name: Enable ZFS scrub timer
+  ansible.builtin.systemd:
+    name: zfs-scrub.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [zfs-scrub]
+
+# --- ZFS ARC Tuning ---
+
+- name: Configure ZFS ARC max
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/zfs.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible - playbooks/zfs-snapshots.yml
+      # ZFS ARC max size (takes effect on reboot)
+      options zfs zfs_arc_max={{ zfs_arc_max_bytes }}
+  when: zfs_arc_max_bytes is defined
+  tags: [zfs-scrub, zfs-tuning]
+
+# --- ZFS Dataset Property Validation ---
+
+- name: Validate ZFS dataset properties
+  ansible.builtin.shell: |
+    zfs get -H -o value {{ item.1.key }} {{ item.0.key }} 2>/dev/null
+  register: zfs_prop_checks
+  changed_when: false
+  failed_when: false
+  loop: "{{ zfs_dataset_properties | dict2items | subelements('value') }}"
+  loop_control:
+    label: "{{ item.0.key }}.{{ item.1.key }}"
+  when: zfs_dataset_properties is defined
+  tags: [zfs-validate, never]
+
+- name: Report ZFS property drift
+  ansible.builtin.debug:
+    msg: "DRIFT: {{ item.item.0.key }} {{ item.item.1.key }} is '{{ item.stdout }}' (expected '{{ item.item.1.value }}')"
+  loop: "{{ zfs_prop_checks.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.0.key }}.{{ item.item.1.key }}"
+  when:
+    - zfs_prop_checks is defined
+    - item.stdout is defined
+    - item.stdout != item.item.1.value | string
+  tags: [zfs-validate, never]
+
+# --- ZFS ACLs ---
+
+- name: Apply ZFS POSIX ACLs
+  ansible.posix.acl:
+    path: "{{ item.0.path }}"
+    entity: "{{ item.1.entity }}"
+    etype: "{{ item.1.etype }}"
+    permissions: "{{ item.1.permissions }}"
+    default: "{{ item.1.default | default(false) }}"
+    recursive: true
+    state: "{{ item.1.state | default('present') }}"
+  loop: "{{ zfs_acls | subelements('entries') + zfs_acls | subelements('default_entries') }}"
+  loop_control:
+    label: "{{ item.0.path }} {{ item.1.etype }}:{{ item.1.entity }}"
+  when: zfs_acls is defined
+  tags: [zfs-acl]

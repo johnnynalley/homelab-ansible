@@ -1,0 +1,79 @@
+# =============================================================================
+# Sanoid Tasks - ZFS Snapshot Automation
+# =============================================================================
+# Installs sanoid and configures automated ZFS snapshots
+# Expects variables:
+#   sanoid_datasets: dict of dataset configurations
+#   sanoid_templates: dict of template definitions
+
+- name: Install sanoid (Debian)
+  ansible.builtin.apt:
+    name: sanoid
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_facts.os_family == "Debian"
+
+- name: Create sanoid config directory
+  ansible.builtin.file:
+    path: /etc/sanoid
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure sanoid
+  ansible.builtin.template:
+    src: ../templates/sanoid.conf.j2
+    dest: /etc/sanoid/sanoid.conf
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Restart sanoid timer
+
+- name: Create sanoid systemd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/sanoid.service
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=Sanoid ZFS Snapshot Automation
+      Requires=zfs.target
+      After=zfs.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/sbin/sanoid --take-snapshots --prune-snapshots
+      StandardOutput=journal
+      StandardError=journal
+  notify: Reload systemd
+
+- name: Create sanoid systemd timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/sanoid.timer
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=Run sanoid every 15 minutes
+
+      [Timer]
+      OnCalendar=*:0/15
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  notify:
+    - Reload systemd
+    - Restart sanoid timer
+
+- name: Enable and start sanoid timer
+  ansible.builtin.systemd:
+    name: sanoid.timer
+    enabled: true
+    state: started
+    daemon_reload: true

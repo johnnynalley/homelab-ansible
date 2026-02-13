@@ -1,0 +1,10 @@
+# =============================================================================
+# Ansible Galaxy Requirements
+# =============================================================================
+# Install: ansible-galaxy collection install -r requirements.yml
+# =============================================================================
+
+collections:
+  # AUR package management for Arch Linux hosts
+  - name: kewlfft.aur
+    version: ">=0.13.0"

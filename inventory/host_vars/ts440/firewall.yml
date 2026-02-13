@@ -1,0 +1,71 @@
+# =============================================================================
+# ts440 - Proxmox Node + VM Firewall Configuration
+# =============================================================================
+
+# Node-level firewall (host.fw)
+pve_node_firewall:
+  enable: true
+  rules:
+    # Cluster
+    - { type: group, name: "corosync-lan", comment: "Cluster heartbeat" }
+
+    # Proxmox API
+    - { action: ACCEPT, iface: vmbr0, proto: tcp, dport: 8006, comment: "Proxmox API (LAN)" }
+    - { action: ACCEPT, iface: tailscale0, proto: tcp, dport: 8006, comment: "Proxmox API (Tailscale)" }
+
+    # SSH
+    - { action: ACCEPT, iface: vmbr0, proto: tcp, dport: 22, comment: "SSH (LAN)" }
+    - { action: ACCEPT, iface: tailscale0, proto: tcp, dport: 22, comment: "SSH (Tailscale)" }
+
+    # Cluster migration (LAN only)
+    - { action: ACCEPT, iface: vmbr0, proto: tcp, dport: 3128, comment: "Spice proxy (LAN)" }
+    - { action: ACCEPT, iface: vmbr0, proto: tcp, dport: "60000:60050", comment: "Live migration (LAN)" }
+
+    # NFS server (ts440 exports to Tailscale clients)
+    - { action: ACCEPT, iface: tailscale0, proto: tcp, dport: 2049, comment: "NFSv4 (Tailscale)" }
+
+    # SMB server (ts440 serves Samba shares over Tailscale only)
+    - { action: ACCEPT, iface: tailscale0, proto: tcp, dport: 445, comment: "SMB (Tailscale)" }
+    - { action: ACCEPT, iface: tailscale0, proto: tcp, dport: 139, comment: "NetBIOS (Tailscale)" }
+    - { action: DROP, proto: tcp, dport: 445, comment: "Block SMB elsewhere" }
+    - { action: DROP, proto: tcp, dport: 139, comment: "Block NetBIOS elsewhere" }
+
+    # Ping
+    - { action: ACCEPT, iface: tailscale0, proto: icmp, comment: "Ping (Tailscale)" }
+
+    # Default deny
+    - { action: DROP, comment: "Default deny" }
+
+# VM/CT firewall rules
+pve_vm_firewalls:
+  # media-vm (VM 100)
+  100:
+    enable: true
+    policy_in: DROP
+    rules:
+      - { action: ACCEPT, source: "+dc/docker-vm", comment: "Caddy (all services)" }
+      - { action: ACCEPT, proto: tcp, dport: 22, comment: "SSH" }
+      - { action: ACCEPT, proto: tcp, dport: 32400, comment: "Plex direct" }
+      - { action: ACCEPT, source: "+dc/haos-vm", proto: tcp, dport: 8181, comment: "Tautulli from HA" }
+
+  # nextcloud-vm (VM 101) - Nextcloud AIO
+  101:
+    enable: true
+    policy_in: DROP
+    rules:
+      # Caddy reverse proxy (Nextcloud Apache on port 11000)
+      - { action: ACCEPT, source: "+dc/docker-vm", proto: tcp, dport: 11000, comment: "Nextcloud Apache from Caddy" }
+      # AIO admin interface (port 8080, Tailscale-only access)
+      - { action: ACCEPT, proto: tcp, dport: 8080, comment: "AIO admin interface" }
+      # SSH for management
+      - { action: ACCEPT, proto: tcp, dport: 22, comment: "SSH" }
+
+  # homebridge-lxc (CT 102)
+  102:
+    enable: true
+    policy_in: DROP
+    rules:
+      - { action: ACCEPT, proto: tcp, dport: 22, comment: "SSH" }
+      - { action: ACCEPT, proto: tcp, dport: 8581, comment: "Homebridge UI" }
+      - { action: ACCEPT, proto: tcp, dport: "51000:56000", comment: "HomeKit HAP (main + child bridges)" }
+      - { action: ACCEPT, proto: udp, dport: 5353, comment: "mDNS/Bonjour" }

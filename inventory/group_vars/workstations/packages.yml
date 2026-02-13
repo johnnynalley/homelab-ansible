@@ -1,0 +1,39 @@
+# =============================================================================
+# Workstations - Shared Packages
+# =============================================================================
+# Split by OS — package names and availability differ across distros.
+# macOS workstations use packages_macos_common/packages_macos_casks instead.
+
+# Arch Linux workstations (jn-desktop)
+packages_arch_workstations_extra:
+  # Sync
+  - nextcloud-client
+  # Sharing
+  - localsend
+  # Communication
+  - discord
+
+# Debian/Ubuntu workstations (jn-t14s-lin)
+packages_debian_workstations_extra:
+  # Sync (in Ubuntu universe repo)
+  - nextcloud-desktop
+  # Flatpak runtime (for apps not in apt — see flatpak_workstations below)
+  - flatpak
+
+# Flatpak apps for Debian/Ubuntu workstations (Flathub IDs)
+# Arch gets these natively via pacman; Debian needs Flatpak
+flatpak_workstations:
+  # Sharing
+  - org.localsend.localsend_app
+  # Communication
+  - com.discordapp.Discord
+  # E-book reader
+  - com.bilingify.readest
+
+# GitHub .deb packages for Debian/Ubuntu workstations
+# Uses /latest/download/ URL to always grab newest release
+# Version-checked — only reinstalls when upstream has a newer version
+deb_debian_workstations:
+  - name: plezy
+    url: "https://github.com/edde746/plezy/releases/latest/download/plezy-linux.deb"
+    api: "https://api.github.com/repos/edde746/plezy/releases/latest"

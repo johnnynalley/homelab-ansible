@@ -1,0 +1,15 @@
+# =============================================================================
+# jn-t14s-lin - Backup Configuration
+# =============================================================================
+
+# B2 offsite backup paths
+restic_backup_paths_extra:
+  - /home/johnny
+
+# Local backup to ts440 ZFS (for quick restore)
+local_restic_enabled: true
+local_restic_backup_paths:
+  - /home/johnny
+
+# Skip backups when on battery power (systemd ConditionACPower=true)
+restic_require_ac_power: true

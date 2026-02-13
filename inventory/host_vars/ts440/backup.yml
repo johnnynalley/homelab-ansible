@@ -1,0 +1,21 @@
+# =============================================================================
+# ts440 - Backup Configuration
+# =============================================================================
+
+# TS440 has the NAS storage - back up entire ZFS pool with excludes
+restic_backup_paths_extra:
+  - /etc/pve
+  - /root
+  - /srv/nas-zfs              # Entire ZFS pool - new datasets auto-included
+
+# ts440-specific excludes for B2 backup
+# These add to global restic_excludes in group_vars/backup_clients/restic.yml
+restic_excludes_extra:
+  # Replaceable media - don't back up to B2
+  - "/srv/nas-zfs/media/plex"
+  - "/srv/nas-zfs/media/plex/**"
+  - "/srv/nas-zfs/media/podcasts"
+  - "/srv/nas-zfs/media/podcasts/**"
+  # Time Machine has its own versioning
+  - "/srv/nas-zfs/backups/timemachine"
+  - "/srv/nas-zfs/backups/timemachine/**"

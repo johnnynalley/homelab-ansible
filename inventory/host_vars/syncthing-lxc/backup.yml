@@ -1,0 +1,8 @@
+# =============================================================================
+# syncthing-lxc - Backup Configuration
+# =============================================================================
+
+# Backup paths (Syncthing config)
+restic_backup_paths_extra:
+  - /home/johnny/.config/syncthing
+  - /home/johnny

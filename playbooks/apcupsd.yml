@@ -1,0 +1,87 @@
+# =============================================================================
+# apcupsd Playbook - UPS Monitoring (Master/Slave)
+# =============================================================================
+# Configures apcupsd for UPS power monitoring:
+#   - Master: USB-connected UPS (pve-m70q)
+#   - Slaves: Network clients that monitor master (ts440, pve-alto, pve-herc)
+#
+# VMs don't need apcupsd - the Proxmox host handles VM shutdown.
+#
+# Usage: ansible-playbook playbooks/apcupsd.yml
+#        ansible-playbook playbooks/apcupsd.yml --limit pve-m70q
+# =============================================================================
+
+- name: Configure apcupsd UPS monitoring
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Skip hosts without apcupsd enabled
+      ansible.builtin.meta: end_host
+      when: not (apcupsd_enabled | default(false))
+
+    - name: Install apcupsd (Debian)
+      ansible.builtin.apt:
+        name: apcupsd
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Configure apcupsd
+      ansible.builtin.template:
+        src: ../templates/apcupsd.conf.j2
+        dest: /etc/apcupsd/apcupsd.conf
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      notify: Restart apcupsd
+
+    - name: Enable apcupsd in default config (Debian)
+      ansible.builtin.lineinfile:
+        path: /etc/default/apcupsd
+        regexp: "^ISCONFIGURED="
+        line: "ISCONFIGURED=yes"
+        create: true
+      when: ansible_facts.os_family == "Debian"
+      notify: Restart apcupsd
+
+    - name: Deploy apcupsd event notification script
+      ansible.builtin.template:
+        src: ../templates/apcupsd-event-notify.sh.j2
+        dest: /etc/apcupsd/event-notify.sh
+        owner: root
+        group: root
+        mode: "0755"
+      when: apcupsd_email_enabled | default(false)
+
+    - name: Configure apcupsd event hooks
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # Managed by Ansible - do not edit manually
+          /etc/apcupsd/event-notify.sh "{{ item }}"
+        dest: "/etc/apcupsd/{{ item }}"
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - onbattery
+        - offbattery
+        - commfailure
+        - commok
+      when: apcupsd_email_enabled | default(false)
+
+    - name: Ensure apcupsd is enabled and running
+      ansible.builtin.systemd:
+        name: apcupsd
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Restart apcupsd
+      ansible.builtin.systemd:
+        name: apcupsd
+        state: restarted

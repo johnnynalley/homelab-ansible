@@ -1,0 +1,26 @@
+# =============================================================================
+# Local Restic Backups - Configuration
+# =============================================================================
+# Backs up to ts440 ZFS over SFTP (in addition to B2 offsite backups)
+# Private key is in vault.yml
+
+# Enable local backups per-host by setting local_restic_enabled: true in host_vars
+local_restic_enabled: false
+
+# ts440 Tailscale IP for SFTP access
+local_restic_target_host: "100.71.188.16"
+local_restic_target_user: "johnny"
+local_restic_target_path: "/srv/nas-zfs/backups"
+
+# Repository path (per-host subdirectory)
+local_restic_repository: "sftp:{{ local_restic_target_user }}@{{ local_restic_target_host }}:{{ local_restic_target_path }}/{{ inventory_hostname }}"
+
+# Retention policy (more granular than offsite)
+local_restic_retention:
+  keep_hourly: 24
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 6
+
+# SSH public key for backup access (private key in vault.yml)
+local_restic_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGS230AKySFPRHc7XMNarlXh4lcTX3SioHPplGz60P5V restic-backup@homelab"
