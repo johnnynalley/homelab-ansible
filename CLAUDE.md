@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-> **Last updated:** 2026-02-13
+> **Last updated:** 2026-02-14
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -329,7 +329,7 @@ Lightweight VM running only infrastructure services. Specs: 6 cores, 6GB RAM, di
 - **Gitea**: Self-hosted Git server (`git.jnalley.me`, SSH on port 2222)
 - **Jellyseerr**: Media request management (`requests.jnalley.me`) - uses Plex OAuth
 - **Cloudflared**: Cloudflare Tunnel for public access to Nextcloud/Jellyseerr
-- **Notifications**: Apprise API (`apprise.jnalley.me`) + ntfy (`ntfy.jnalley.me`) — centralized notification routing
+- **Notifications**: Apprise API (`apprise.jnalley.me`) + Pushover — centralized notification routing (ntfy container commented out, preserved for future use)
 - **Diun**: Docker Image Update Notifier — monitors containers for available image updates
 
 **Docker Network**: Services use `caddy-proxy` network (created by Caddy stack). Other stacks join it as external.
@@ -585,59 +585,85 @@ cat /var/lib/gluetun-watchdog/failure_count
 cat /var/lib/gluetun-watchdog/restart_log
 ```
 
-#### Notification Stack (Diun + Apprise + ntfy)
+#### Notification Stack (Apprise + Pushover)
 
-Centralized notification system for infrastructure alerts (SMART disk errors, UPS power events, Docker image updates), with push notifications and email routing.
+Centralized notification system for infrastructure alerts (SMART disk errors, UPS power events, Docker image updates) and media notifications, with push notifications via Pushover and email routing.
 
 **Architecture:**
 ```
 Diun (docker-vm) ─────┐
-Diun (media-vm) ──────┼──→ Apprise API ───→ ntfy (phone push via upstream relay)
-Diun (nextcloud-vm) ──┤   (docker-vm)  ───→ Email (iCloud SMTP)
-smartd (all physical) ─┤
-apcupsd (proxmox) ─────┘
+Diun (media-vm) ──────┼──→ Apprise API ───→ Pushover "Homelab" app (infrastructure, Time Sensitive)
+Diun (nextcloud-vm) ──┤   (docker-vm)  ───→ Pushover "cc-media-feed" app (media, silent)
+smartd (all physical) ─┤                ───→ Email (iCloud SMTP)
+apcupsd (proxmox) ────┤
+Sonarr/Radarr ────────┤ (native Apprise connection, media-feed tag)
+Jellyseerr ────────────┘ (webhook, media-requests tag)
+
+Sonarr/Radarr ──→ Discord (native connection, rich embeds with poster art)
 ```
+
+**Why Pushover over ntfy**: ntfy's iOS app does not support per-topic push notification control (Apple rejected the APNs entitlement). Even with priority set to `min`, ntfy notifications still appear in the iOS notification center. Pushover allows true silent/in-app-only delivery via priority `-2` (lowest), and each Pushover app can have independent iOS notification settings. ntfy is preserved (commented out in docker-compose, config files on disk) in case the iOS app improves.
 
 **Components:**
 
 | Service | Host | Path | Purpose |
 |---------|------|------|---------|
-| Apprise API | docker-vm | `/opt/notifications/` | Notification router — receives webhooks, fans out to ntfy + email |
-| ntfy | docker-vm | `/opt/notifications/` | Self-hosted push notification server (`ntfy.jnalley.me`) |
+| Apprise API | docker-vm | `/opt/notifications/` | Notification router — receives webhooks, fans out to Pushover + email |
 | Diun | docker-vm | `/opt/diun/` | Monitors docker-vm containers for image updates |
 | Diun | media-vm | `/opt/diun/` | Monitors media-vm containers for image updates |
 | Diun | nextcloud-vm | `/opt/diun/` | Monitors nextcloud-vm containers for image updates |
+
+**ntfy** (commented out in docker-compose, config preserved at `/opt/notifications/ntfy/`): Previously used for push notifications. Container and Caddy reverse proxy (`ntfy.jnalley.me`) are inactive but preserved for potential future re-enablement.
+
+**Pushover Apps:**
+
+| App | Purpose | Priority | iOS Behavior |
+|-----|---------|----------|--------------|
+| Homelab | Infrastructure alerts (Diun, smartd, apcupsd) | Normal (0) | Time Sensitive notification |
+| cc-media-feed | Media notifications (Sonarr/Radarr grabs, Jellyseerr requests) | Lowest (-2) | Silent, in-app only |
 
 **Diun Configuration** (`/opt/diun/diun.yml` on each VM):
 - Watch schedule: every 6 hours (`0 */6 * * *`) with 30s jitter
 - Docker provider: `watchByDefault: true` (monitors all running containers)
 - `firstCheckNotif: false` — only notifies on actual updates, not first scan
-- Sends with `tags: [push]` so only ntfy is triggered (not email)
+- Sends with `tags: [push]` so only Pushover "Homelab" is triggered (not email)
 - docker-vm Diun reaches Apprise at `http://apprise:8000` (Docker network)
 - media-vm/nextcloud-vm Diun reaches Apprise at `https://apprise.jnalley.me` (via Caddy)
 
 **Apprise Configuration** (`/opt/notifications/apprise-config/notifications.cfg`):
 - `APPRISE_STATEFUL_MODE=simple` — human-readable config files at `/config/`
 - Config key `notifications` maps to file `/config/notifications.cfg` (TEXT format)
-- Contains tagged notification URLs (email credentials — treat as secret)
+- Contains tagged notification URLs using `pover://` scheme (Pushover credentials — treat as secret)
+
+**Tagged URLs in config:**
+
+| Tag | Target | Purpose |
+|-----|--------|---------|
+| `push` | Pushover "Homelab" app (normal priority) | Infrastructure alerts |
+| `email` | iCloud SMTP | Email notifications |
+| `media-feed` | Pushover "cc-media-feed" app (priority -2, silent) | Sonarr/Radarr grab notifications |
+| `media-requests` | Pushover "cc-media-feed" app (priority -2, silent) | Jellyseerr request notifications |
 
 **Tag routing:**
-- `push` tag → ntfy (`compute-corner` topic)
+- `push` tag → Pushover "Homelab" app (Time Sensitive on iOS)
 - `email` tag → email (iCloud SMTP)
-- Both tags or no tag → all targets
+- `media-feed` tag → Pushover "cc-media-feed" app (silent)
+- `media-requests` tag → Pushover "cc-media-feed" app (silent)
+- Both `push` and `email` or no tag → all infrastructure targets
 
-Apps control routing by specifying tags when sending. Diun uses `tags: [push]` for ntfy-only. smartd and apcupsd use `apprise_alert_tags` variable (default: `push`). To add email for critical alerts, change to `push,email` in `group_vars/all/vars.yml`.
+Apps control routing by specifying tags when sending. Diun uses `tags: [push]` for Pushover-only. smartd and apcupsd use `apprise_alert_tags` variable (default: `push`). To add email for critical alerts, change to `push,email` in `group_vars/all/vars.yml`.
+
+**Media Notifications:**
+
+Sonarr and Radarr have **two** notification connections each:
+1. **Discord** (native connection in Settings → Connect): Rich embeds with poster art, episode/movie details
+2. **Apprise** (native connection in Settings → Connect): Silent Pushover via `media-feed` tag for unobtrusive mobile tracking
+
+Jellyseerr sends notifications via a **webhook** to Apprise with the `media-requests` tag for silent Pushover delivery.
 
 **Apprise email URL format note**: When the SMTP username contains `@`, use the `?user=` query parameter format instead of embedding in the URL path. Apprise's URL serialization loses `%40` encoding when stored via the API, causing authentication failures. The query parameter approach (`mailtos://domain?user=...&pass=...&smtp=host`) is reliable.
 
-**ntfy Configuration** (`/opt/notifications/ntfy/server.yml`):
-- Listens on port 1025 (internal), reverse proxied by Caddy at `ntfy.jnalley.me`
-- `behind-proxy: true` for correct client IP logging
-- `upstream-base-url: "https://ntfy.sh"` — required for iOS push notifications (relays poll requests through ntfy.sh's APNs credentials; actual message content is fetched directly from our server)
-- Topic: `compute-corner` (subscribe in ntfy app)
-
 **Access:**
-- ntfy web UI: `https://ntfy.jnalley.me`
 - Apprise web UI: `https://apprise.jnalley.me`
 - Apprise config UI: `https://apprise.jnalley.me/cfg/notifications`
 - Apprise health: `https://apprise.jnalley.me/status`
@@ -651,21 +677,18 @@ ansible media-vm -m shell -a "docker exec diun diun notif test" --become
 # Check Apprise config is loaded
 curl -s https://apprise.jnalley.me/json/urls/notifications/?privacy=1
 
-# Check ntfy messages
-curl -s "https://ntfy.jnalley.me/compute-corner/json?poll=1&since=1h"
-
 # View Diun logs (which images were checked)
 ansible docker-vm -m shell -a "docker logs diun --tail 20 2>&1" --become
 ```
 
 **Adding new notification targets**: Edit `/opt/notifications/apprise-config/notifications.cfg` on docker-vm and restart Apprise (`docker compose restart apprise` in `/opt/notifications/`). Apprise supports 90+ services — see [Apprise wiki](https://github.com/caronc/apprise/wiki) for URL formats.
 
-**Adding a new app**: Point its webhook at `https://apprise.jnalley.me/notify/notifications` with `tag` in the POST body to control routing. Use `push` for ntfy only, `email` for email only, or both.
+**Adding a new app**: Point its webhook at `https://apprise.jnalley.me/notify/notifications` with `tag` in the POST body to control routing. Use `push` for Pushover "Homelab" only, `email` for email only, `media-feed` or `media-requests` for silent media notifications, or combine tags.
 
 #### Reverse Proxy (Caddy on docker-vm)
 
 Caddy proxies all services over Tailscale with HTTPS (DNS-01 via Cloudflare):
-- **docker-vm services** (via Docker network): `vaultwarden`, `ntfy`, `apprise`
+- **docker-vm services** (via Docker network): `vaultwarden`, `apprise` (note: `ntfy.jnalley.me` Caddy entry is inactive — ntfy container is commented out)
 - **media-vm services** (via Tailscale IP 100.66.6.113): `plex`, `sonarr`, `radarr`, `prowlarr`, `bazarr`, `sabnzbd`, `qbit`, `huntarr`, `tautulli`, `audiobookshelf`, `tdarr`, `photos` (Immich)
 
 Caddyfile location: `/opt/caddy/Caddyfile` (on docker-vm, stored locally)

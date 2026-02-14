@@ -1,6 +1,6 @@
 # Homelab Ansible
 
-> **Last updated:** 2026-02-13
+> **Last updated:** 2026-02-14
 
 Ansible automation for Johnny's homelab infrastructure (4 Proxmox nodes, 6 VMs/LXCs, Ansible controller LXC, gaming workstation, ThinkPad laptop, MacBook).
 
@@ -469,8 +469,7 @@ docker-vm (VM 110 on pve-m70q) runs infrastructure services:
 | Gitea | `git.jnalley.me` | Self-hosted Git (SSH on 2222) |
 | Jellyseerr | `requests.jnalley.me` | Media requests (Plex OAuth) |
 | Cloudflared | - | Cloudflare Tunnel (public access) |
-| Apprise API | `apprise.jnalley.me` | Notification router (ntfy + email) |
-| ntfy | `ntfy.jnalley.me` | Self-hosted push notifications |
+| Apprise API | `apprise.jnalley.me` | Notification router (Pushover + email) |
 | Diun | - | Docker image update notifier |
 
 Stacks support `start: true/false` in `docker.yml` to control service state.
@@ -603,30 +602,36 @@ cat ~/Library/Logs/rclone-sync.log
 rclone config reconnect nextcloud:
 ```
 
-## Notification Stack (Apprise + ntfy)
+## Notification Stack (Apprise + Pushover)
 
-Centralized notification router for infrastructure alerts using tag-based routing.
+Centralized notification router for infrastructure and media alerts using tag-based routing via Pushover.
 
 ```
 Diun (container updates) ──┐
-smartd (disk health) ──────┼──→ Apprise API (docker-vm) → ntfy push / Email
-apcupsd (UPS power) ───────┘
+smartd (disk health) ──────┼──→ Apprise API (docker-vm) → Pushover "Homelab" (Time Sensitive)
+apcupsd (UPS power) ───────┤                           → Email (iCloud SMTP)
+Sonarr/Radarr (grabs) ────┤                           → Pushover "cc-media-feed" (silent)
+Jellyseerr (requests) ─────┘
+
+Sonarr/Radarr ──→ Discord (native connection, rich embeds with poster art)
 ```
 
-- **Apprise API**: Notification router at `/opt/notifications/` on docker-vm. Config at `apprise-config/notifications.cfg`
-- **ntfy**: Push notification server at `/opt/notifications/` on docker-vm. Subscribe to `compute-corner` topic in the ntfy app. Uses `upstream-base-url: "https://ntfy.sh"` for iOS push via APNs
+- **Apprise API**: Notification router at `/opt/notifications/` on docker-vm. Config uses `pover://` URLs for Pushover
+- **Two Pushover apps**: "Homelab" (normal priority, Time Sensitive on iOS) and "cc-media-feed" (priority -2, silent/in-app only)
+- **Four Apprise tags**: `push` (infrastructure → Homelab app), `email` (iCloud SMTP), `media-feed` (Sonarr/Radarr → cc-media-feed app), `media-requests` (Jellyseerr → cc-media-feed app)
 - **Diun**: Container image update notifier on all Docker VMs (`/opt/diun/`), sends with `push` tag
-- **smartd**: SMART disk alerts on Proxmox nodes + workstations, sends via `/usr/local/bin/smartd-notify` script
-- **apcupsd**: UPS power alerts on Proxmox nodes, sends via `/etc/apcupsd/event-notify.sh` script
-- **Tag routing**: `push` → ntfy, `email` → email, both/no tag → all targets
+- **smartd/apcupsd**: Infrastructure alerts, send with `push` tag
+- **Sonarr/Radarr**: Dual notifications — Discord (rich embeds) + Apprise `media-feed` tag (silent Pushover)
+- **Jellyseerr**: Webhook to Apprise with `media-requests` tag (silent Pushover)
+- **ntfy**: Commented out in docker-compose, config preserved at `/opt/notifications/ntfy/`. Switched to Pushover because ntfy iOS lacks per-topic push control.
 - **Adding apps**: POST to `https://apprise.jnalley.me/notify/notifications` with `tag` field for routing
 
 ```bash
 # Test notifications
 ansible docker-vm -m shell -a "docker exec diun diun notif test" --become
 
-# Check ntfy messages
-curl -s "https://ntfy.jnalley.me/compute-corner/json?poll=1&since=1h"
+# Check Apprise config
+curl -s https://apprise.jnalley.me/json/urls/notifications/?privacy=1
 
 # Edit targets: /opt/notifications/apprise-config/notifications.cfg on docker-vm
 # Then restart: cd /opt/notifications && docker compose restart apprise

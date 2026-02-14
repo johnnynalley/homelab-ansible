@@ -166,6 +166,47 @@ fix_proxmox_bridge() {
     done < /etc/network/interfaces
 }
 
+ensure_interfaces_up() {
+    # Check if primary interface and bridge ports are UP
+    # Catches link flaps where the kernel recovers carrier but interface stays DOWN
+    local iface
+    iface=$(get_primary_interface)
+    [[ -z "$iface" ]] && return 0
+
+    local operstate
+    operstate=$(cat "/sys/class/net/${iface}/operstate" 2>/dev/null || echo "unknown")
+
+    if [[ "$operstate" == "down" ]]; then
+        log "Primary interface $iface is DOWN - bringing up"
+        ip link set "$iface" up 2>/dev/null || true
+
+        # On Proxmox: also bring up bridge ports
+        if [[ -f /etc/network/interfaces && "$iface" == vmbr* ]]; then
+            while IFS= read -r line; do
+                if [[ "$line" =~ ^iface[[:space:]]+"$iface" ]]; then
+                    local found_bridge=true
+                elif [[ "${found_bridge:-}" == "true" && "$line" =~ bridge-ports[[:space:]]+(.+) ]]; then
+                    for port in ${BASH_REMATCH[1]}; do
+                        [[ "$port" == "none" ]] && continue
+                        [[ ! -e "/sys/class/net/$port" ]] && continue
+                        local port_state
+                        port_state=$(cat "/sys/class/net/${port}/operstate" 2>/dev/null || echo "unknown")
+                        if [[ "$port_state" == "down" ]]; then
+                            log "Bridge port $port is DOWN - bringing up"
+                            ip link set "$port" up 2>/dev/null || true
+                        fi
+                    done
+                    break
+                elif [[ "${found_bridge:-}" == "true" && "$line" =~ ^iface ]]; then
+                    break
+                fi
+            done < /etc/network/interfaces
+        fi
+
+        sleep 3
+    fi
+}
+
 check_router_reachable() {
     # Multi-layered check for router reachability that works in all environments
     # including unprivileged LXC containers where arping doesn't work
@@ -392,6 +433,9 @@ restart_dependent_services() {
 }
 
 main() {
+    # Ensure interfaces are UP before checking connectivity
+    ensure_interfaces_up
+
     local gateway_failures tailscale_failures
     gateway_failures=$(get_failure_count "gateway")
     tailscale_failures=$(get_failure_count "tailscale")
