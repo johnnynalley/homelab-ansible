@@ -468,6 +468,9 @@ docker-vm (VM 110 on pve-m70q) runs infrastructure services:
 | Gitea | `git.jnalley.me` | Self-hosted Git (SSH on 2222) |
 | Jellyseerr | `requests.jnalley.me` | Media requests (Plex OAuth) |
 | Cloudflared | - | Cloudflare Tunnel (public access) |
+| Apprise API | `apprise.jnalley.me` | Notification router (ntfy + email) |
+| ntfy | `ntfy.jnalley.me` | Self-hosted push notifications |
+| Diun | - | Docker image update notifier |
 
 Stacks support `start: true/false` in `docker.yml` to control service state.
 
@@ -597,6 +600,30 @@ cat ~/Library/Logs/rclone-sync.log
 
 # Re-auth if Nextcloud password changes
 rclone config reconnect nextcloud:
+```
+
+## Notification Stack (Diun + Apprise + ntfy)
+
+Container image update notifications across all Docker VMs, routed through a centralized Apprise API.
+
+```
+Diun (docker-vm/media-vm/nextcloud-vm) → Apprise API (docker-vm) → ntfy + Email
+```
+
+- **Diun**: Checks registries every 6 hours for newer images, notifies via Apprise
+- **Apprise API**: Notification router at `/opt/notifications/` on docker-vm. Config at `apprise-config/diun.cfg`
+- **ntfy**: Push notification server at `/opt/notifications/` on docker-vm. Subscribe to `container-updates` topic in the ntfy app
+- **Diun configs**: `/opt/diun/diun.yml` on each VM. docker-vm uses Docker network (`http://apprise:8000`), others use Caddy (`https://apprise.jnalley.me`)
+
+```bash
+# Test notifications
+ansible docker-vm -m shell -a "docker exec diun diun notif test" --become
+
+# Check ntfy messages
+curl -s "https://ntfy.jnalley.me/container-updates/json?poll=1&since=1h"
+
+# Add notification targets: edit /opt/notifications/apprise-config/diun.cfg on docker-vm
+# Then restart: cd /opt/notifications && docker compose restart apprise
 ```
 
 ## Planned: WAN Failover

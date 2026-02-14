@@ -17,3 +17,6 @@ docker_stacks:
   - name: immich
     path: /opt/immich
     build: false
+  - name: diun
+    path: /opt/diun
+    build: false

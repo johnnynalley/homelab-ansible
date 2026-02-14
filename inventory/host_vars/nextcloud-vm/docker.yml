@@ -8,3 +8,6 @@ docker_stacks:
   - name: nextcloud-aio
     path: /opt/nextcloud
     build: false
+  - name: diun
+    path: /opt/diun
+    build: false

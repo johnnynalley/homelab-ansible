@@ -329,6 +329,8 @@ Lightweight VM running only infrastructure services. Specs: 6 cores, 6GB RAM, di
 - **Gitea**: Self-hosted Git server (`git.jnalley.me`, SSH on port 2222)
 - **Jellyseerr**: Media request management (`requests.jnalley.me`) - uses Plex OAuth
 - **Cloudflared**: Cloudflare Tunnel for public access to Nextcloud/Jellyseerr
+- **Notifications**: Apprise API (`apprise.jnalley.me`) + ntfy (`ntfy.jnalley.me`) — centralized notification routing
+- **Diun**: Docker Image Update Notifier — monitors containers for available image updates
 
 **Docker Network**: Services use `caddy-proxy` network (created by Caddy stack). Other stacks join it as external.
 
@@ -348,6 +350,7 @@ Nextcloud AIO instance with VirtioFS storage access to ts440's ZFS pool.
 
 **Stacks on nextcloud-vm**:
 - **Nextcloud AIO**: All-in-one Nextcloud deployment with Collabora, Talk, etc.
+- **Diun**: Docker Image Update Notifier — monitors containers for available image updates
 
 **VirtioFS Mounts** (Ansible-managed via `host_vars/ts440/virtiofs.yml` and `host_vars/nextcloud-vm/virtiofs.yml`):
 
@@ -368,9 +371,9 @@ All mounts use `cache=never` to prevent host memory exhaustion. Data directory a
 
 **Email Configuration**:
 Nextcloud sends email via iCloud SMTP (same account as ts440 smartmontools alerts):
-- From: `nextcloud@jnalley.me`
+- From: `nextcloud@<domain>` (see vault for domain)
 - SMTP: `smtp.mail.me.com:587` (STARTTLS)
-- Auth: `jn@jnalley.me` with app-specific password
+- Auth: iCloud email with app-specific password (credentials in vault)
 
 Settings configured via `occ` CLI (UI may not save all fields properly):
 ```bash
@@ -379,15 +382,15 @@ occ config:system:set mail_smtpsecure --value='tls'
 occ config:system:set mail_smtphost --value='smtp.mail.me.com'
 occ config:system:set mail_smtpport --value='587'
 occ config:system:set mail_smtpauth --value='1' --type=integer
-occ config:system:set mail_smtpname --value='jn@jnalley.me'
+occ config:system:set mail_smtpname --value='<icloud-email>'
 occ config:system:set mail_smtppassword --value='<app-password>'
 occ config:system:set mail_from_address --value='nextcloud'
-occ config:system:set mail_domain --value='jnalley.me'
+occ config:system:set mail_domain --value='<domain>'
 ```
 
 **Mail Providers Setting**: Use "System email account" (not "User's email account"). This sends all Nextcloud emails (notifications, calendar invites) from the system SMTP. The "User's email account" option requires users to configure the Nextcloud Mail app with their own email - unnecessary for single-user.
 
-**iOS CalDAV/CardDAV**: App passwords must be created with the correct login name. If you log in with email (`jn@jnalley.me`), app passwords get that as `login_name`, but iOS sends username `Johnny` - causing auth failures. Create app passwords via CLI to ensure correct login name:
+**iOS CalDAV/CardDAV**: App passwords must be created with the correct login name. If you log in with email, app passwords get that as `login_name`, but iOS sends the display username — causing auth failures. Create app passwords via CLI to ensure correct login name:
 ```bash
 docker exec -u www-data nextcloud-aio-nextcloud php occ user:auth-tokens:add Johnny
 ```
@@ -400,6 +403,7 @@ Primary media services VM. Specs: 10GB RAM, 4 cores, 200GB local disk, Quadro P2
 - **media-stack**: Plex, Sonarr, Radarr, Prowlarr, Bazarr, SABnzbd, qBittorrent, Gluetun, Huntarr, Tautulli, Tdarr, Recyclarr, Audiobookshelf
 - **immich**: Immich photo/video management (server, machine learning, PostgreSQL, Redis, folder-album-creator) with GPU acceleration
 - **portainer**: Docker management UI (ports 9000/9443)
+- **diun**: Docker Image Update Notifier — monitors containers for available image updates
 
 **Config Storage**: All configs stored locally at `/opt/` on media-vm (backed up hourly to ts440 ZFS):
 - `/opt/media-stack/docker-compose.yml` - main stack including audiobookshelf
@@ -581,10 +585,73 @@ cat /var/lib/gluetun-watchdog/failure_count
 cat /var/lib/gluetun-watchdog/restart_log
 ```
 
+#### Notification Stack (Diun + Apprise + ntfy)
+
+Centralized notification system for Docker container image updates, with support for push notifications and email.
+
+**Architecture:**
+```
+Diun (docker-vm) ─────┐
+Diun (media-vm) ──────┼──→ Apprise API ───→ ntfy (phone push)
+Diun (nextcloud-vm) ──┘   (docker-vm)  ───→ Email (iCloud SMTP)
+```
+
+**Components:**
+
+| Service | Host | Path | Purpose |
+|---------|------|------|---------|
+| Apprise API | docker-vm | `/opt/notifications/` | Notification router — receives webhooks, fans out to ntfy + email |
+| ntfy | docker-vm | `/opt/notifications/` | Self-hosted push notification server (`ntfy.jnalley.me`) |
+| Diun | docker-vm | `/opt/diun/` | Monitors docker-vm containers for image updates |
+| Diun | media-vm | `/opt/diun/` | Monitors media-vm containers for image updates |
+| Diun | nextcloud-vm | `/opt/diun/` | Monitors nextcloud-vm containers for image updates |
+
+**Diun Configuration** (`/opt/diun/diun.yml` on each VM):
+- Watch schedule: every 6 hours (`0 */6 * * *`) with 30s jitter
+- Docker provider: `watchByDefault: true` (monitors all running containers)
+- `firstCheckNotif: false` — only notifies on actual updates, not first scan
+- docker-vm Diun reaches Apprise at `http://apprise:8000` (Docker network)
+- media-vm/nextcloud-vm Diun reaches Apprise at `https://apprise.jnalley.me` (via Caddy)
+
+**Apprise Configuration** (`/opt/notifications/apprise-config/diun.cfg`):
+- `APPRISE_STATEFUL_MODE=simple` — human-readable config files at `/config/`
+- Config key `diun` maps to file `/config/diun.cfg` (TEXT format, one URL per line)
+- Contains ntfy and email notification URLs (email credentials — treat as secret)
+
+**Apprise email URL format note**: When the SMTP username contains `@`, use the `?user=` query parameter format instead of embedding in the URL path. Apprise's URL serialization loses `%40` encoding when stored via the API, causing authentication failures. The query parameter approach (`mailtos://domain?user=...&pass=...&smtp=host`) is reliable.
+
+**ntfy Configuration** (`/opt/notifications/ntfy/server.yml`):
+- Listens on port 1025 (internal), reverse proxied by Caddy at `ntfy.jnalley.me`
+- `behind-proxy: true` for correct client IP logging
+- Topic: `container-updates` (subscribe in ntfy app)
+
+**Access:**
+- ntfy web UI: `https://ntfy.jnalley.me`
+- Apprise web UI: `https://apprise.jnalley.me`
+- Apprise health: `https://apprise.jnalley.me/status`
+
+**Verification:**
+```bash
+# Test notification from any Diun instance
+ansible docker-vm -m shell -a "docker exec diun diun notif test" --become
+ansible media-vm -m shell -a "docker exec diun diun notif test" --become
+
+# Check Apprise config is loaded
+curl -s https://apprise.jnalley.me/json/urls/diun/?privacy=1
+
+# Check ntfy messages
+curl -s "https://ntfy.jnalley.me/container-updates/json?poll=1&since=1h"
+
+# View Diun logs (which images were checked)
+ansible docker-vm -m shell -a "docker logs diun --tail 20 2>&1" --become
+```
+
+**Adding new notification targets**: Edit `/opt/notifications/apprise-config/diun.cfg` on docker-vm and restart Apprise (`docker compose restart apprise` in `/opt/notifications/`). Apprise supports 90+ services — see [Apprise wiki](https://github.com/caronc/apprise/wiki) for URL formats.
+
 #### Reverse Proxy (Caddy on docker-vm)
 
 Caddy proxies all services over Tailscale with HTTPS (DNS-01 via Cloudflare):
-- **docker-vm services** (via Docker network): `vaultwarden`
+- **docker-vm services** (via Docker network): `vaultwarden`, `ntfy`, `apprise`
 - **media-vm services** (via Tailscale IP 100.66.6.113): `plex`, `sonarr`, `radarr`, `prowlarr`, `bazarr`, `sabnzbd`, `qbit`, `huntarr`, `tautulli`, `audiobookshelf`, `tdarr`, `photos` (Immich)
 
 Caddyfile location: `/opt/caddy/Caddyfile` (on docker-vm, stored locally)

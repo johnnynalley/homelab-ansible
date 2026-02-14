@@ -28,3 +28,9 @@ docker_stacks:
   - name: cloudflared
     path: /opt/cloudflared
     build: false
+  - name: notifications
+    path: /opt/notifications
+    build: false
+  - name: diun
+    path: /opt/diun
+    build: false
