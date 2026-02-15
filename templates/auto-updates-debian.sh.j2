@@ -47,11 +47,6 @@ if [[ "$UPDATE_COUNT" -gt 0 ]]; then
     apt-get autoremove -y
     apt-get autoclean -y
 
-    # Update Tailscale if installed
-    if command -v tailscale &>/dev/null; then
-        log "Updating Tailscale..."
-        apt-get install --only-upgrade -y tailscale || true
-    fi
 else
     log "All packages are up to date"
 fi
